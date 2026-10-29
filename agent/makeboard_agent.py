@@ -30,7 +30,7 @@ import psutil
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
@@ -38,6 +38,17 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 MAX_MAKEFILE = 1024 * 1024
 # 웹에서 보고 고칠 수 있는 설정 파일: 서비스 폴더와 바로 아래 하위 폴더의 yaml
 YAML_EXT = (".yaml", ".yml")
+# Dockerfile, Dockerfile.dev, api.Dockerfile 도 웹에서 보고 고친다
+DOCKERFILE_RE = re.compile(r"^([Dd]ockerfile(\.[A-Za-z0-9_.-]+)?|[A-Za-z0-9_.-]+\.[Dd]ockerfile)$")
+
+
+def editable_name(name: str) -> str | None:
+    """웹에서 다루는 설정 파일 종류: yaml / dockerfile, 아니면 None"""
+    if name.startswith("."):
+        return None
+    if Path(name).suffix.lower() in YAML_EXT:
+        return "yaml"
+    return "dockerfile" if DOCKERFILE_RE.match(name) else None
 MAX_FILE = 512 * 1024
 MAX_FILES = 200
 SKIP_DIRS = {"node_modules", "vendor", "__pycache__", "venv", ".venv"}
@@ -613,12 +624,12 @@ class Agent:
 
     # ---- 설정 파일 (yaml)
     def _project_file(self, project: str, rel: str) -> tuple[Path, Path]:
-        """서비스 폴더 안의 yaml 파일 경로. 폴더 밖(.., 절대 경로, 밖을 가리키는 링크)이나 yaml 이 아니면 거절한다."""
+        """서비스 폴더 안의 yaml·Dockerfile 경로. 폴더 밖(.., 절대 경로, 밖을 가리키는 링크)이나 다른 파일은 거절한다."""
         base = self.cfg.projects.get(project)
         if base is None:
             raise ValueError(f"등록되지 않은 프로젝트입니다: {project}")
         rel_path = Path(rel)
-        if not rel or rel_path.is_absolute() or ".." in rel_path.parts or rel_path.suffix.lower() not in YAML_EXT \
+        if not rel or rel_path.is_absolute() or ".." in rel_path.parts or not editable_name(rel_path.name) \
                 or any(p.startswith(".") for p in rel_path.parts) or len(rel_path.parts) > 2:
             raise ValueError(f"열 수 없는 파일입니다: {rel}")
         root = base.resolve()
@@ -641,10 +652,11 @@ class Agent:
         for f in candidates:
             if len(files) >= MAX_FILES:
                 break
-            if f.suffix.lower() in YAML_EXT and f.is_file() and not f.name.startswith("."):
+            kind = editable_name(f.name)
+            if kind and f.is_file():
                 real = f.resolve()
                 if root in real.parents:
-                    files.append({"path": f.relative_to(root).as_posix(), "size": f.stat().st_size})
+                    files.append({"path": f.relative_to(root).as_posix(), "size": f.stat().st_size, "type": kind})
         await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "files": files})
 
     async def read_file(self, msg: dict) -> None:
@@ -657,7 +669,13 @@ class Agent:
         await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "content": text, "sha": sha256(text)})
 
     async def write_file(self, msg: dict) -> None:
-        _, path = self._project_file(str(msg.get("project")), str(msg.get("path") or ""))
+        root, path = self._project_file(str(msg.get("project")), str(msg.get("path") or ""))
+        if not path.parent.exists():
+            # 새 빌드 폴더 (서비스 폴더 바로 아래 한 단계만, _project_file 이 확인했다). 소유자는 서비스 폴더와 같게
+            path.parent.mkdir()
+            if os.geteuid() == 0:
+                st = root.stat()
+                os.chown(path.parent, st.st_uid, st.st_gid)
         content = str(msg.get("content") or "")
         if len(content.encode()) > MAX_FILE:
             raise ValueError("파일이 너무 큽니다 (512KB 초과)")

@@ -18,7 +18,7 @@ const TONE: Record<Tone, string> = {
   other: 'bg-hover text-muted',
 }
 const SHORT: Record<string, string> = {
-  HorizontalPodAutoscaler: 'HPA', PersistentVolumeClaim: 'PVC', compose: 'compose', volume: 'volume',
+  HorizontalPodAutoscaler: 'HPA', PersistentVolumeClaim: 'PVC', compose: 'compose', volume: 'volume', Dockerfile: 'Dockerfile',
 }
 function toneOf(kind: string): Tone {
   if (kind === 'Ingress' || kind === 'Service') return 'net'
@@ -375,7 +375,9 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
             <button type="button" onClick={() => setAskDelete(false)} className="h-9 px-3 rounded-full text-[13px] text-muted hover:bg-hover">아니요</button>
             <button type="button" disabled={busy} onClick={() => void save(null)} className="h-9 px-4 rounded-full bg-fail text-onaccent text-[13px] disabled:opacity-50">삭제</button>
           </> : <>
-            <button type="button" onClick={() => setAskDelete(true)} className="h-9 px-3 rounded-full text-[13px] text-muted hover:text-fail hover:bg-hover mr-auto">삭제</button>
+            {node.kind === 'Dockerfile'
+              ? <span className="text-[12px] text-faint mr-auto">빌드는 Makefile 이나 compose 로 실행하세요</span>
+              : <button type="button" onClick={() => setAskDelete(true)} className="h-9 px-3 rounded-full text-[13px] text-muted hover:text-fail hover:bg-hover mr-auto">삭제</button>}
             {dirty && <button type="button" onClick={() => { setText(node.text ?? ''); setError('') }} className="h-9 px-3 rounded-full text-[13px] text-muted hover:bg-hover">변경 취소</button>}
             <button type="button" disabled={busy || !dirty} onClick={() => void save(text)} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] disabled:opacity-50">
               {busy ? '저장하는 중…' : '저장'}</button>

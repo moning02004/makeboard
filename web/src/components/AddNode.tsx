@@ -10,6 +10,12 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   serviceId: number; me: Me; topo: Topology; onDone: (msg: string, node: { kind: string; name: string }) => void; onClose: () => void
 }) {
   const [items, setItems] = useState<CatalogItem[]>([])
+  const [dockerfiles, setDockerfiles] = useState<{ id: string; name: string; port: number }[]>([])
+  // '직접 입력'은 이미지 대신 Dockerfile 로 빌드할 수 있다 (compose 만)
+  const [useBuild, setUseBuild] = useState(false)
+  const [buildDir, setBuildDir] = useState('')
+  const [dfTemplate, setDfTemplate] = useState('')
+  const [port, setPort] = useState('')
   const [itemId, setItemId] = useState('redis')
   const [name, setName] = useState('redis')
   const [nameTouched, setNameTouched] = useState(false)
@@ -21,7 +27,7 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   const [reauth, setReauth] = useState(false)
   const [code, setCode] = useState('')
 
-  useEffect(() => { api.catalog().then(setItems).catch((e) => setError((e as Error).message)) }, [])
+  useEffect(() => { api.catalog().then((c) => { setItems(c.items); setDockerfiles(c.dockerfiles) }).catch((e) => setError((e as Error).message)) }, [])
   const item = items.find((i) => i.id === itemId)
   useEffect(() => {
     if (!item) return
@@ -39,14 +45,16 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
     const f = topo.nodes.find((n) => n.file && n.kind !== 'compose' && n.kind !== 'volume')?.file
     return f && f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : ''
   }, [topo])
+  const building = itemId === 'custom' && useBuild
   const targets = [
     ...(composeFiles.length ? composeFiles : ['docker-compose.yml']).map((f) => ({
       value: `compose:${f}`, label: `compose · ${f}`, description: composeFiles.includes(f) ? '서비스로 덧붙입니다' : '새 파일을 만듭니다' })),
     { value: 'k8s', label: `쿠버네티스 · ${k8sDir}${name || '이름'}.yaml`, description: 'Service·Secret·StatefulSet(또는 Deployment)을 새 파일로' },
-  ]
+  ].filter((t) => !(building && t.value === 'k8s'))
   // 기본: compose 파일이 있으면 거기, 없고 쿠버네티스 리소스가 있으면 쿠버네티스, 둘 다 없으면 새 compose
   const hasK8s = topo.nodes.some((n) => n.file && !['compose', 'volume'].includes(n.kind))
   const [target, setTarget] = useState(composeFiles.length || !hasK8s ? targets[0].value : 'k8s')
+  useEffect(() => { if (building && target === 'k8s') setTarget(targets[0].value) }, [building, target, targets])
   const isCompose = target.startsWith('compose:')
   const composeServices = isCompose ? topo.nodes.filter((n) => n.kind === 'compose' && n.file === target.slice(8)).map((n) => n.name) : []
   const exists = topo.nodes.some((n) => n.name === name && (isCompose ? n.kind === 'compose' : !n.missing))
@@ -56,6 +64,8 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
     try {
       const r = await api.addNode(serviceId, {
         item: itemId, name: name.trim(), image: image.trim(), password,
+        build: building ? (buildDir.trim() || `./${name.trim()}`) : '', dockerfile: building ? dfTemplate : '',
+        port: itemId === 'custom' && port.trim() ? Number(port) : null,
         target: isCompose ? target : `k8s:${k8sDir}${name.trim()}.yaml`, connect: isCompose ? connect : [],
       })
       const [kind, n] = r.node.split(':')
@@ -104,10 +114,34 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
             <label className="flex flex-col gap-1.5 text-[12px] text-muted">이름
               <input className={inp} value={name} onChange={(e) => { setName(e.target.value.toLowerCase()); setNameTouched(true) }} spellCheck={false} autoComplete="off" placeholder="cache" />
             </label>
-            <label className="flex flex-col gap-1.5 text-[12px] text-muted">이미지
-              <input className={inp} value={image} onChange={(e) => setImage(e.target.value)} spellCheck={false} autoComplete="off" placeholder="redis:7" />
+            <label className="flex flex-col gap-1.5 text-[12px] text-muted">{building ? <>이미지 태그 <span className="text-faint">선택</span></> : '이미지'}
+              <input className={inp} value={image} onChange={(e) => setImage(e.target.value)} spellCheck={false} autoComplete="off" placeholder={building ? `${name || 'app'}:local` : 'redis:7'} />
             </label>
           </div>
+          {itemId === 'custom' && <>
+            <div role="radiogroup" aria-label="실행 방식" className="flex gap-0.5 p-0.5 rounded-full bg-hover text-[12px] self-start">
+              {([[false, '이미지 사용'], [true, 'Dockerfile로 빌드']] as const).map(([v, label]) => (
+                <button key={label} type="button" role="radio" aria-checked={useBuild === v} onClick={() => setUseBuild(v)}
+                  className={`h-7 px-3 rounded-full ${useBuild === v ? 'bg-accent text-onaccent font-semibold' : 'text-muted hover:text-fg'}`}>{label}</button>
+              ))}
+            </div>
+            {useBuild && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5 text-[12px] text-muted">빌드 폴더 <span className="text-faint">compose 파일 기준</span>
+                  <input className={inp} value={buildDir} onChange={(e) => setBuildDir(e.target.value)} spellCheck={false} autoComplete="off" placeholder={`./${name || 'app'}`} />
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[12px] text-muted">Dockerfile <span className="text-faint">없으면 만들기</span></span>
+                  <Select label="Dockerfile 템플릿" value={dfTemplate} onChange={(v) => { setDfTemplate(v); const d = dockerfiles.find((x) => x.id === v); if (d && !port) setPort(String(d.port)) }}
+                    options={[{ value: '', label: '이미 있음', description: '폴더의 Dockerfile 을 그대로 씁니다' },
+                      ...dockerfiles.map((d) => ({ value: d.id, label: d.name, description: '없으면 이 템플릿으로 만듭니다' }))]} />
+                </div>
+              </div>
+            )}
+            <label className="flex flex-col gap-1.5 text-[12px] text-muted sm:w-1/2">포트 <span className="text-faint">선택</span>
+              <input className={inp} value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="8000" />
+            </label>
+          </>}
           {item?.password && (
             <label className="flex flex-col gap-1.5 text-[12px] text-muted">비밀번호 <span className="text-faint">비우면 자동으로 만듭니다 · compose 는 .env, 쿠버네티스는 Secret 에 저장</span>
               <input className={inp} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
@@ -132,7 +166,7 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
           {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="h-9 px-4 rounded-full text-[13px] text-muted hover:bg-hover">취소</button>
-            <button type="submit" disabled={busy || !item || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name.trim()) || !image.trim() || exists}
+            <button type="submit" disabled={busy || !item || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name.trim()) || (!building && !image.trim()) || exists}
               className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] disabled:opacity-50">{busy ? '추가하는 중…' : '추가'}</button>
           </div>
         </form>

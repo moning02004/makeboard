@@ -65,9 +65,10 @@ logs: ## 최근 로그 200줄 (APP=이름)
     {
         "id": "docker",
         "name": "Docker",
-        "description": "compose 없이 docker run 으로 띄우는 컨테이너 하나",
+        "description": "compose 없이 docker run 으로 띄우는 컨테이너 하나 (Dockerfile 빌드 포함)",
         "content": """NAME ?= $(notdir $(CURDIR))
-IMAGE ?=
+# 레지스트리 이미지를 쓰면 바꾸세요 (예: nginx:1.27). Dockerfile 로 빌드하면 이 이름으로 태그합니다
+IMAGE ?= $(NAME):local
 PORT ?= 8080:80
 
 ##@ 실행
@@ -87,10 +88,12 @@ logs: ## 최근 로그 200줄
 \tdocker logs --tail=200 $(NAME)
 
 ##@ 배포
-pull: ## 최신 이미지 받기
+build: ## Dockerfile 로 이미지 빌드
+\tdocker build -t $(IMAGE) .
+pull: ## 레지스트리에서 이미지 받기
 \tdocker pull $(IMAGE)
-deploy: ## 최신 이미지로 다시 만들기
-\t$(MAKE) pull
+deploy: ## 빌드하고 컨테이너 다시 만들기
+\t$(MAKE) build
 \t$(MAKE) rm
 \t$(MAKE) run
 """,

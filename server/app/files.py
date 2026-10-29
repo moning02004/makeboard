@@ -124,6 +124,7 @@ async def read_file(service_id: int, path: str, user: str = Member) -> dict:
     svc, _ = await _service(service_id)
     text = await _read(svc, path)
     secret = has_secret(text)
+    secret = secret and not is_dockerfile(path)
     return {"path": path, "content": mask_secrets(text) if secret else text, "sha": sha(text),
             "readonly": "Secret 값은 가리고 보기만 됩니다" if secret else None}
 
@@ -150,7 +151,24 @@ async def _write(svc: Service, path: str, old: str, content: str, user: str, not
     return str(reply.get("sha") or sha(content))
 
 
-def _check_editable(current: str, content: str) -> None:
+DOCKERFILE_RE = re.compile(r"^([Dd]ockerfile(\.[A-Za-z0-9_.-]+)?|[A-Za-z0-9_.-]+\.[Dd]ockerfile)$")
+FROM_RE = re.compile(r"^\s*FROM\s+\S+", re.M | re.I)
+
+
+def is_dockerfile(path: str) -> bool:
+    return bool(DOCKERFILE_RE.match(path.rsplit("/", 1)[-1]))
+
+
+def dockerfile_error(text: str) -> str | None:
+    return None if FROM_RE.search(text) else "Dockerfile 에 FROM 줄이 없습니다"
+
+
+def _check_editable(current: str, content: str, path: str = "") -> None:
+    if is_dockerfile(path):
+        # 원래 FROM 이 있던 파일이면 지우지 않게만 확인한다
+        if dockerfile_error(current) is None and dockerfile_error(content):
+            raise HTTPException(422, dockerfile_error(content))
+        return
     if has_secret(current) or has_secret(content):
         raise HTTPException(409, "Secret 이 든 파일은 웹에서 고칠 수 없습니다")
     # 원래부터 yaml 로 읽히지 않는 파일(Helm 템플릿 등)은 문법 검사를 하지 않는다
@@ -168,7 +186,7 @@ async def save_file(service_id: int, body: SaveIn, user: str = Editor) -> dict:
         raise HTTPException(409, "서버의 파일이 그사이 바뀌었습니다. 다시 불러온 뒤 고치세요")
     if body.content == current:
         return {"path": body.path, "sha": body.sha, "changed": False}
-    _check_editable(current, body.content)
+    _check_editable(current, body.content, body.path)
     new_sha = await _write(svc, body.path, current, body.content, user, "저장")
     return {"path": body.path, "sha": new_sha, "changed": True}
 
@@ -209,6 +227,6 @@ async def revert(service_id: int, body: RevertIn, user: str = Editor) -> dict:
         raise HTTPException(409, "서버의 파일이 그사이 바뀌었습니다. 다시 불러온 뒤 되돌리세요")
     if r.content == current:
         return {"path": r.path, "sha": body.sha, "changed": False}
-    _check_editable(current, r.content)
+    _check_editable(current, r.content, r.path)
     new_sha = await _write(svc, r.path, current, r.content, user, f"{r.id}번으로 되돌림")
     return {"path": r.path, "sha": new_sha, "changed": True}

@@ -53,3 +53,11 @@ def test_k8s_manifest_graph():
     assert {"Secret:mq-secret", "Service:mq", "StatefulSet:mq", "PersistentVolumeClaim:data"} <= kinds
     edges = {(e["from"].split("|")[-1], e["kind"]) for e in g["edges"]}
     assert len(g["edges"]) >= 3 and ("pw-123" not in str(g["nodes"]))  # Secret 값은 가려진다
+
+
+def test_custom_service_with_build():
+    body, vol = compose_body(BY_ID["custom"], "worker", "", 8000, False, "./worker")
+    assert yaml.safe_load(body) == {"build": "./worker", "restart": "unless-stopped", "ports": ["8000:8000"]}
+    out = add_compose_service("services:\n  web:\n    image: nginx\n", "worker", body, vol)
+    g = analyze({"docker-compose.yml": out})
+    assert any(n["kind"] == "Dockerfile" and n["name"] == "worker/Dockerfile" for n in g["nodes"])

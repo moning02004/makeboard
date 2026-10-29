@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import posixpath
 import re
 from typing import Any
 
@@ -180,6 +181,7 @@ class Graph:
         self.nodes: dict[str, dict] = {}
         self.edges: list[dict] = []
         self.by_name: dict[tuple[str, str], str] = {}
+        self.dockerfiles: dict[str, str] = {}
 
     def add(self, nid: str, kind: str, name: str, **kw: Any) -> dict:
         n = {"id": nid, "kind": kind, "name": name, "summary": [], "rank": RANK.get(kind, 2), **kw}
@@ -290,6 +292,40 @@ def _k8s_edges(g: Graph, items: list[tuple[str, str, dict]]) -> None:
                 g.link(nid, g.ref(str(t["kind"]), str(t["name"])), "scale")
 
 
+def _build_path(compose_path: str, build: Any) -> str | None:
+    """compose 의 build 가 가리키는 Dockerfile 경로 (서비스 폴더 기준)."""
+    if not build:
+        return None
+    ctx, df = (build, "Dockerfile") if isinstance(build, str) else (build.get("context", "."), build.get("dockerfile", "Dockerfile"))
+    if not isinstance(ctx, str) or "://" in ctx or not isinstance(df, str):
+        return None  # git URL 빌드 등
+    base = posixpath.dirname(compose_path)
+    p = posixpath.normpath(posixpath.join(base, ctx, df))
+    return None if p.startswith("..") else p
+
+
+def _dockerfile_summary(text: str) -> list[list[str]]:
+    out, bases, expose, cmd = [], [], [], ""
+    for line in text.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) < 2:
+            continue
+        op, arg = parts[0].upper(), parts[1].strip()
+        if op == "FROM":
+            bases.append(arg.split()[0])
+        elif op == "EXPOSE":
+            expose += arg.split()
+        elif op in ("CMD", "ENTRYPOINT"):
+            cmd = arg
+    if bases:
+        out.append(["FROM", " → ".join(bases)])
+    if expose:
+        out.append(["EXPOSE", ", ".join(expose)])
+    if cmd:
+        out.append([("CMD"), cmd[:80]])
+    return out
+
+
 def _compose(g: Graph, path: str, text: str, data: dict) -> None:
     services = data.get("services") if isinstance(data.get("services"), dict) else {}
     blocks, child = compose_blocks(text)
@@ -297,7 +333,10 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
     for name, svc in services.items():
         svc = svc if isinstance(svc, dict) else {}
         s, e = blocks.get(name, (0, 0))
-        summary = [["image", str(svc["image"])]] if svc.get("image") else [["build", str(svc.get("build", "-"))]] if svc.get("build") else []
+        summary = [["image", str(svc["image"])]] if svc.get("image") else []
+        build = _build_path(path, svc.get("build"))
+        if build:
+            summary.insert(0, ["build", build])
         if svc.get("ports"):
             summary.append(["ports", ", ".join(str(p) for p in svc["ports"])])
         body = block_body(text, str(name))
@@ -306,6 +345,18 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
     vols: dict[str, list[str]] = {}
     for name, svc in services.items():
         svc = svc if isinstance(svc, dict) else {}
+        # build: 의 Dockerfile 을 노드로 붙인다 (서비스 폴더에서 찾지 못하면 missing)
+        dfp = _build_path(path, svc.get("build"))
+        if dfp:
+            did = f"{dfp}|dockerfile|"
+            if did not in g.nodes:
+                text_ = g.dockerfiles.get(dfp)
+                if text_ is None:
+                    g.add(did, "Dockerfile", dfp, missing=True, editable=False)
+                else:
+                    g.add(did, "Dockerfile", dfp, file=dfp, editable=True, text=text_, summary=_dockerfile_summary(text_))
+            g.link(did, f"{path}|svc|{name}", "build")
+            vols.setdefault(did, []).append(f"{path}|svc|{name}")
         deps = svc.get("depends_on") or []
         for d in (deps.keys() if isinstance(deps, dict) else deps):
             if f"{path}|svc|{d}" in g.nodes:
@@ -334,9 +385,12 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
 
 
 def analyze(sources: dict[str, str]) -> dict:
-    """{파일 경로: 내용} → {nodes, edges, errors}"""
+    """{파일 경로: 내용} → {nodes, edges, errors}. Dockerfile 은 compose 의 build 로 이어 붙인다."""
     g, items, errors = Graph(), [], []
+    g.dockerfiles = {p: t for p, t in sources.items() if files.is_dockerfile(p)}
     for path, text in sources.items():
+        if path in g.dockerfiles:
+            continue
         try:
             docs = [yaml.safe_load("".join(_lines(text)[s:e])) for s, e in doc_ranges(text)]
         except yaml.YAMLError:
@@ -460,6 +514,10 @@ def _splice(current: str, nid: str, text: str | None) -> tuple[str, str]:
         return (delete_doc(current, i) if text is None else replace_doc(current, i, text)), label
     if part == "svc":
         return replace_block(current, key, text), f"compose {key}"
+    if part == "dockerfile":
+        if text is None:
+            raise HTTPException(422, "Dockerfile 은 여기서 지울 수 없습니다. 서비스의 build 를 지우세요")
+        return _ensure_nl(text), "Dockerfile"
     raise HTTPException(422, "고칠 수 없는 노드입니다")
 
 
@@ -490,13 +548,17 @@ async def save_node(service_id: int, body: NodeIn, user: str = Editor) -> dict:
     current = await files._read(svc, path)
     if sha(current) != body.sha:
         raise HTTPException(409, "파일이 그사이 바뀌었습니다. 다시 불러오세요")
-    if body.text is not None:
-        if files.yaml_error(body.text):
-            raise HTTPException(422, files.yaml_error(body.text))
-        _check_single(body.id, body.text)
-    new, label = _splice(current, body.id, body.text)
-    if files.yaml_error(current) is None and files.yaml_error(new):
-        raise HTTPException(422, files.yaml_error(new))
+    if files.is_dockerfile(path):
+        new, label = _splice(current, body.id, body.text)
+        files._check_editable(current, new, path)
+    else:
+        if body.text is not None:
+            if files.yaml_error(body.text):
+                raise HTTPException(422, files.yaml_error(body.text))
+            _check_single(body.id, body.text)
+        new, label = _splice(current, body.id, body.text)
+        if files.yaml_error(current) is None and files.yaml_error(new):
+            raise HTTPException(422, files.yaml_error(new))
     if new == current:
         return {"changed": False}
     await files._write(svc, path, current, new, user, f"{label} {'삭제' if body.text is None else '수정'}")

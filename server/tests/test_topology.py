@@ -130,11 +130,13 @@ def test_k8s_graph():
 def test_compose_graph_and_blocks():
     g = analyze({"docker-compose.yml": COMPOSE})
     # 켜지는 순서대로: db → api → web, 볼륨은 쓰는 서비스로
-    assert edges(g) == {("compose:api", "compose:web"), ("compose:db", "compose:api"), ("volume:pgdata", "compose:db")}
+    assert edges(g) == {("compose:api", "compose:web"), ("compose:db", "compose:api"), ("volume:pgdata", "compose:db"),
+                        ("Dockerfile:Dockerfile", "compose:api")}  # build: . 의 Dockerfile (파일이 없으니 missing)
     assert {e["kind"] for e in g["edges"] if e["label"] == "먼저"} == {"start"}
     by = {n["name"]: n for n in g["nodes"]}
     assert [by[k]["rank"] for k in ("pgdata", "db", "api", "web")] == [0, 1, 2, 3]
-    assert by["web"]["summary"] == [["image", "nginx:1.27"], ["ports", "8080:80"]] and by["api"]["summary"] == [["build", "."]]
+    assert by["web"]["summary"] == [["image", "nginx:1.27"], ["ports", "8080:80"]] and by["api"]["summary"] == [["build", "Dockerfile"]]
+    assert by["Dockerfile"]["missing"] is True
     assert by["api"]["text"] == "build: .\ndepends_on: [db]\n"  # 이름 줄(api:) 없이 내용만
     blocks, child = compose_blocks(COMPOSE)
     assert child == 2 and list(blocks) == ["web", "api", "db"]
@@ -167,3 +169,15 @@ def test_panel_edits_only_one_resource():
     for bad in ("- just a list\n", "image: redis:7\nrabbitmq:\n  image: rabbitmq:3\n"):
         with pytest.raises(HTTPException):
             _check_single("c.yml|svc|redis", bad)
+
+
+def test_dockerfile_node_from_compose_build():
+    compose = "services:\n  api:\n    build:\n      context: ./api\n      dockerfile: Dockerfile.prod\n  web:\n    build: web\n"
+    df = "FROM python:3.12-slim AS base\nFROM base\nEXPOSE 8000\nCMD [\"uvicorn\", \"app:app\"]\n"
+    g = analyze({"deploy/compose.yaml": compose, "deploy/api/Dockerfile.prod": df})
+    by = {f"{n['kind']}:{n['name']}": n for n in g["nodes"]}
+    node = by["Dockerfile:deploy/api/Dockerfile.prod"]
+    assert node["editable"] and node["text"] == df
+    assert node["summary"] == [["FROM", "python:3.12-slim → base"], ["EXPOSE", "8000"], ["CMD", '["uvicorn", "app:app"]']]
+    assert by["Dockerfile:deploy/web/Dockerfile"]["missing"] is True
+    assert node["rank"] < by["compose:api"]["rank"]  # Dockerfile 은 서비스 왼쪽
