@@ -10,3 +10,6 @@ Makefile.makeboard.bak
 .idea/
 docs/
 Makefile
+# 데모 예제 서비스의 Makefile 은 저장소에 둔다
+!examples/**/Makefile
+.demo/

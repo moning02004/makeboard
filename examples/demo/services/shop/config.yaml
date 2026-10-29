@@ -1,0 +1,7 @@
+# 데모: 파일 → config.yaml 에서 고치고, 변경 기록에서 되돌려 보세요
+app:
+  name: shop
+  log_level: info
+  features:
+    new_checkout: false
+    recommendations: true

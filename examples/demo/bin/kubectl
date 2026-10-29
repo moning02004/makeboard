@@ -1,0 +1,23 @@
+#!/bin/sh
+# 로컬 데모용 가짜 kubectl. 클러스터에 접속하지 않고 api 네임스페이스에 파드 3개가 있는 것처럼 답한다.
+# scripts/demo.sh 가 데모 에이전트의 PATH 앞에만 붙인다.
+case "$*" in
+  *"get pods"*"-A"*|*"-A"*"get pods"*) cat <<'J'
+{"items":[
+ {"metadata":{"namespace":"api","name":"api-7d9f8c6b5-k2x4p"},"status":{"phase":"Running","containerStatuses":[{"ready":true,"restartCount":0,"state":{"running":{}}}]}},
+ {"metadata":{"namespace":"api","name":"api-7d9f8c6b5-q8m1z"},"status":{"phase":"Running","containerStatuses":[{"ready":true,"restartCount":0,"state":{"running":{}}}]}},
+ {"metadata":{"namespace":"api","name":"api-worker-5c2b9-x7d"},"status":{"phase":"Running","containerStatuses":[{"ready":true,"restartCount":1,"state":{"running":{}}}]}}
+]}
+J
+  ;;
+  *"top pods"*"-A"*|*"-A"*"top pods"*)
+    r() { echo $(( $(od -An -N2 -tu2 /dev/urandom) % $1 + $2 )); }
+    echo "api api-7d9f8c6b5-k2x4p $(r 120 40)m $(r 60 140)Mi"
+    echo "api api-7d9f8c6b5-q8m1z $(r 120 40)m $(r 60 140)Mi"
+    echo "api api-worker-5c2b9-x7d $(r 30 5)m $(r 40 80)Mi" ;;
+  *apply*) sleep 1; echo "deployment.apps/api configured"; echo "secret/api-db unchanged" ;;
+  *"rollout restart"*) echo "deployment.apps/api restarted"; for i in 1 2; do sleep 1; echo "Waiting for rollout: $i of 2 updated replicas are available..."; done; echo "deployment \"api\" successfully rolled out" ;;
+  *"get pods"*) printf 'NAME                    READY   STATUS    RESTARTS   AGE\napi-7d9f8c6b5-k2x4p     1/1     Running   0          3d\napi-7d9f8c6b5-q8m1z     1/1     Running   0          3d\napi-worker-5c2b9-x7d    1/1     Running   1          3d\n' ;;
+  *"top pods"*) printf 'NAME                    CPU(cores)   MEMORY(bytes)\napi-7d9f8c6b5-k2x4p     87m          171Mi\napi-7d9f8c6b5-q8m1z     64m          158Mi\napi-worker-5c2b9-x7d    12m          96Mi\n' ;;
+  *) echo "(데모 kubectl) $*" ;;
+esac

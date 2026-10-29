@@ -98,6 +98,24 @@ docker rm -f makeboard-agent && docker rmi makeboard-agent
 
 서비스 폴더와 Makefile은 그대로 남습니다. `.env`의 `MAKEBOARD_AGENT_TOKENS`로 등록한 서버는 웹에서 지울 수 없습니다. `.env`에서 지우고 서버를 재시작하세요.
 
+## 로컬 데모
+
+Docker나 PostgreSQL 없이 서버·웹·에이전트와 예제 서비스 4개를 한 번에 띄워 둘러볼 수 있습니다. Python 3.11 이상이 필요하고, 웹을 처음 빌드할 때만 Node.js가 필요합니다.
+
+```bash
+./scripts/demo.sh              # http://127.0.0.1:8000
+DEMO_PORT=8100 ./scripts/demo.sh
+./scripts/demo.sh --reset      # 데모 DB와 예제 서비스를 처음 상태로
+```
+
+- 계정: 관리자 `admin` / `demo1234`, 실행 권한 `viewer` / `demo1234`. 데모에서는 2단계 인증이 선택입니다(`MAKEBOARD_OTP_REQUIRED=false`).
+- 예제 서비스(`examples/demo/services`)는 `.demo/`에 복사해서 쓰므로 데모에서 고쳐도 저장소 파일은 바뀌지 않습니다. 모든 명령은 메시지만 출력합니다.
+  - **shop**: 순차 배포(deploy)와 단계별 로그, `config.yaml` 편집·되돌리기
+  - **api**: 쿠버네티스 파드 상태와 CPU·메모리. kubectl은 클러스터에 접속하지 않는 데모용 가짜(`examples/demo/bin/kubectl`)입니다
+  - **batch**: 병렬 실행(check), 중지(slow), 실패(broken), 인자 입력(backfill)과 프리셋
+  - **new-service**: Makefile이 없는 서비스 → 템플릿으로 만들기
+- 로그는 `.demo/server.log`, `.demo/agent.log`에 남습니다. Ctrl+C로 끕니다.
+
 ## 3. 로컬 개발
 
 ```bash
