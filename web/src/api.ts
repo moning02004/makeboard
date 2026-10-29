@@ -86,7 +86,7 @@ export const api = {
   // 서비스 폴더의 compose·쿠버네티스 yaml 구성도
   topology: (id: number) => req<Topology>('GET', `/api/services/${id}/topology`),
   catalog: () => req<{ items: CatalogItem[] }>('GET', '/api/catalog'),
-  addNode: (id: number, body: { item: string; name: string; image: string; password: string; target: string; connect: string[]; build?: string; port?: number | null }) =>
+  addNode: (id: number, body: { item: string; name: string; image: string; password: string; target: string; connect: string[]; build?: string; dockerfile?: string; port?: number | null }) =>
     req<{ file: string; node: string }>('POST', `/api/services/${id}/topology/add`, body),
   saveTopoPositions: (id: number, positions: Record<string, { x: number; y: number }>) => req<{ positions: Record<string, { x: number; y: number }> }>('PUT', `/api/services/${id}/topology/positions`, { positions }),
   saveTopoNode: (id: number, nodeId: string, sha: string, text: string | null) => req<{ changed: boolean }>('PUT', `/api/services/${id}/topology/node`, { id: nodeId, sha, text }),

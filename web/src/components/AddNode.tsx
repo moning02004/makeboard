@@ -13,6 +13,7 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   // '직접 입력'은 이미지 대신 Dockerfile 로 빌드할 수 있다 (compose 만)
   const [useBuild, setUseBuild] = useState(false)
   const [buildDir, setBuildDir] = useState('')
+  const [dfName, setDfName] = useState('')
   const [port, setPort] = useState('')
   const [itemId, setItemId] = useState('redis')
   const [name, setName] = useState('redis')
@@ -61,8 +62,8 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
     setBusy(true); setError('')
     try {
       const r = await api.addNode(serviceId, {
-        item: itemId, name: name.trim(), image: image.trim(), password,
-        build: building ? (buildDir.trim() || `./${name.trim()}`) : '',
+        item: itemId, name: name.trim(), image: building ? '' : image.trim(), password,
+        build: building ? (buildDir.trim() || `./${name.trim()}`) : '', dockerfile: building ? dfName.trim() : '',
         port: itemId === 'custom' && port.trim() ? Number(port) : null,
         target: isCompose ? target : `k8s:${k8sDir}${name.trim()}.yaml`, connect: isCompose ? connect : [],
       })
@@ -112,9 +113,11 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
             <label className="flex flex-col gap-1.5 text-[12px] text-muted">이름
               <input className={inp} value={name} onChange={(e) => { setName(e.target.value.toLowerCase()); setNameTouched(true) }} spellCheck={false} autoComplete="off" placeholder="cache" />
             </label>
-            <label className="flex flex-col gap-1.5 text-[12px] text-muted">{building ? <>이미지 태그 <span className="text-faint">선택</span></> : '이미지'}
-              <input className={inp} value={image} onChange={(e) => setImage(e.target.value)} spellCheck={false} autoComplete="off" placeholder={building ? `${name || 'app'}:local` : 'redis:7'} />
-            </label>
+            {!building && (
+              <label className="flex flex-col gap-1.5 text-[12px] text-muted">이미지
+                <input className={inp} value={image} onChange={(e) => setImage(e.target.value)} spellCheck={false} autoComplete="off" placeholder="redis:7" />
+              </label>
+            )}
           </div>
           {itemId === 'custom' && <>
             <div role="radiogroup" aria-label="실행 방식" className="flex gap-0.5 p-0.5 rounded-full bg-hover text-[12px] self-start">
@@ -124,9 +127,14 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
               ))}
             </div>
             {useBuild && (
-              <label className="flex flex-col gap-1.5 text-[12px] text-muted">빌드 폴더 <span className="text-faint">compose 파일 기준 · 그 폴더의 Dockerfile 로 빌드</span>
-                <input className={inp} value={buildDir} onChange={(e) => setBuildDir(e.target.value)} spellCheck={false} autoComplete="off" placeholder={`./${name || 'app'}`} />
-              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5 text-[12px] text-muted">빌드 폴더 <span className="text-faint">compose 파일 기준</span>
+                  <input className={inp} value={buildDir} onChange={(e) => setBuildDir(e.target.value)} spellCheck={false} autoComplete="off" placeholder={`./${name || 'app'}`} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-[12px] text-muted">Dockerfile 이름 <span className="text-faint">그 폴더 안</span>
+                  <input className={inp} value={dfName} onChange={(e) => setDfName(e.target.value)} spellCheck={false} autoComplete="off" placeholder="Dockerfile" />
+                </label>
+              </div>
             )}
             <label className="flex flex-col gap-1.5 text-[12px] text-muted sm:w-1/2">포트 <span className="text-faint">선택</span>
               <input className={inp} value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="8000" />
@@ -156,7 +164,8 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
           {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="h-9 px-4 rounded-full text-[13px] text-muted hover:bg-hover">취소</button>
-            <button type="submit" disabled={busy || !item || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name.trim()) || (!building && !image.trim()) || exists}
+            <button type="submit" disabled={busy || !item || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name.trim()) || (!building && !image.trim()) || exists
+              || (building && !!dfName.trim() && !/^([Dd]ockerfile(\.[A-Za-z0-9_.-]+)?|[A-Za-z0-9_.-]+\.[Dd]ockerfile)$/.test(dfName.trim()))}
               className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] disabled:opacity-50">{busy ? '추가하는 중…' : '추가'}</button>
           </div>
         </form>

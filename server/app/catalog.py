@@ -67,10 +67,13 @@ def _env_name(name: str) -> str:
     return re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_PASSWORD"
 
 
-def compose_body(item: dict, name: str, image: str, port: int | None, has_password: bool, build: str = "") -> tuple[str, str | None]:
-    """서비스 블록 내용(이름 줄 제외)과 볼륨 이름. build 를 주면 그 폴더의 Dockerfile 로 빌드한다 (image 는 붙일 태그)."""
+def compose_body(item: dict, name: str, image: str, port: int | None, has_password: bool, build: str = "",
+                 dockerfile: str = "") -> tuple[str, str | None]:
+    """서비스 블록 내용(이름 줄 제외)과 볼륨 이름. build 를 주면 그 폴더의 Dockerfile(이름을 바꿀 수 있음)로 빌드한다."""
     ref = f"${{{_env_name(name)}}}"
-    body: dict[str, Any] = {"build": build} if build else {}
+    body: dict[str, Any] = {}
+    if build:
+        body["build"] = {"context": build, "dockerfile": dockerfile} if dockerfile and dockerfile != "Dockerfile" else build
     if image:
         body["image"] = image
     body["restart"] = "unless-stopped"
@@ -207,7 +210,8 @@ class AddIn(BaseModel):
     item: str
     name: str
     image: str = ""
-    build: str = ""  # compose 파일 기준 빌드 폴더 (예: ./api). '직접 입력'에서만, 그 폴더의 Dockerfile 로 빌드
+    build: str = ""  # compose 파일 기준 빌드 폴더 (예: ./api). '직접 입력'에서만
+    dockerfile: str = ""  # 빌드 폴더 안의 Dockerfile 이름 (비우면 Dockerfile)
     port: int | None = None
     password: str = ""  # 비우면 자동 생성
     target: str  # 'compose:<파일>' | 'k8s:<새 파일 경로>'
@@ -225,6 +229,9 @@ async def add_node(service_id: int, body: AddIn, request: Request, user: str = E
         raise HTTPException(422, "이름은 영문 소문자, 숫자, - 로 40자까지 씁니다")
     if build and (body.item != "custom" or not BUILD_RE.match(build) or ".." in build.split("/")):
         raise HTTPException(422, "빌드 폴더는 compose 파일 기준 상대 경로로 씁니다 (예: ./api)")
+    dockerfile = body.dockerfile.strip()
+    if dockerfile and not files.DOCKERFILE_RE.match(dockerfile):
+        raise HTTPException(422, "Dockerfile 이름은 Dockerfile, Dockerfile.prod, api.Dockerfile 같은 모양으로 씁니다")
     if (image or not build) and not IMAGE_RE.match(image):
         raise HTTPException(422, "이미지를 입력하세요 (예: redis:7)")
     port = body.port if body.port is not None else item.get("port")
@@ -243,7 +250,7 @@ async def add_node(service_id: int, body: AddIn, request: Request, user: str = E
             # 비밀값을 .env 에 쓰므로 다시 인증이 필요하다 (환경변수 수정과 같다)
             await auth.require_elevated(request)
             await files._service(service_id, (0, 5, 0))
-        block, volume = compose_body(item, name, image, port, bool(password), build)
+        block, volume = compose_body(item, name, image, port, bool(password), build, dockerfile)
         new = add_compose_service(current, name, block, volume)
         for dep_of in body.connect:
             new = add_depends_on(new, dep_of, name)

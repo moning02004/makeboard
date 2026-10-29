@@ -136,7 +136,7 @@ def test_compose_graph_and_blocks():
     by = {n["name"]: n for n in g["nodes"]}
     assert [by[k]["rank"] for k in ("pgdata", "db", "api", "web")] == [0, 1, 2, 3]
     assert by["web"]["summary"] == [["image", "nginx:1.27"], ["ports", "8080:80"]] and by["api"]["summary"] == [["build", "Dockerfile"]]
-    assert by["Dockerfile"]["missing"] is True
+    assert by["Dockerfile"]["missing"] is True and by["Dockerfile"]["editable"] is True
     assert by["api"]["text"] == "build: .\ndepends_on: [db]\n"  # 이름 줄(api:) 없이 내용만
     blocks, child = compose_blocks(COMPOSE)
     assert child == 2 and list(blocks) == ["web", "api", "db"]
@@ -179,5 +179,6 @@ def test_dockerfile_node_from_compose_build():
     node = by["Dockerfile:deploy/api/Dockerfile.prod"]
     assert node["editable"] and node["text"] == df
     assert node["summary"] == [["FROM", "python:3.12-slim → base"], ["EXPOSE", "8000"], ["CMD", '["uvicorn", "app:app"]']]
-    assert by["Dockerfile:deploy/web/Dockerfile"]["missing"] is True
+    missing = by["Dockerfile:deploy/web/Dockerfile"]
+    assert missing["missing"] is True and missing["editable"] is True and missing["file"] == "deploy/web/Dockerfile"
     assert node["rank"] < by["compose:api"]["rank"]  # Dockerfile 은 서비스 왼쪽

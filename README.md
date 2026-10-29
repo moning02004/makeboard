@@ -198,7 +198,7 @@ backfill-rename-users: ## 사용자 이름 형식 변경   ← 프리셋 (인자
   - 노드를 누르면 오른쪽 패널에서 그 리소스의 yaml을 고치거나 삭제합니다(편집 권한). 파일 전체가 아니라 그 리소스 부분만 바뀌고, 변경 기록에 남습니다.
   - 파일에 없는데 다른 리소스가 가리키는 것(클러스터에 따로 만든 Secret 등)은 점선으로 보입니다.
   - 선: 실선은 켜지는 순서(먼저 → 나중)·요청 흐름, 점선은 설정·볼륨 사용. 카드는 끌어서 옮길 수 있고 위치가 저장됩니다(**자동 정렬**로 되돌리기).
-  - **+ 노드 추가**: Redis, RabbitMQ, PostgreSQL, MySQL, MongoDB, Nginx 또는 직접 입력한 이미지를 넣습니다. 직접 입력은 **Dockerfile로 빌드**도 고를 수 있습니다(compose만, 빌드 폴더의 Dockerfile 사용). compose 파일에는 서비스와 볼륨을 덧붙이고 고른 서비스에 `depends_on`을 더하며, 비밀번호는 `${이름_PASSWORD}`로 참조하고 값은 `.env`에 넣습니다(다시 인증). 쿠버네티스에는 Secret·Service·StatefulSet(또는 Deployment)을 새 파일로 만듭니다.
+  - **+ 노드 추가**: Redis, RabbitMQ, PostgreSQL, MySQL, MongoDB, Nginx 또는 직접 입력한 이미지를 넣습니다. 직접 입력은 **Dockerfile로 빌드**도 고를 수 있습니다(compose만). 빌드 폴더와 Dockerfile 이름(기본 `Dockerfile`, 예: `Dockerfile.prod`)을 정하고, 아직 파일이 없으면 구성도의 Dockerfile 노드에서 내용을 써서 저장하면 만들어집니다. compose 파일에는 서비스와 볼륨을 덧붙이고 고른 서비스에 `depends_on`을 더하며, 비밀번호는 `${이름_PASSWORD}`로 참조하고 값은 `.env`에 넣습니다(다시 인증). 쿠버네티스에는 Secret·Service·StatefulSet(또는 Deployment)을 새 파일로 만듭니다.
 - **환경변수(.env)**: 서비스 화면의 **환경변수**에서 서비스 폴더의 `.env`, `.env.*`, `*.env`를 키 단위로 봅니다. 에이전트 0.5.0 이상이 필요합니다.
   - 목록에는 키 이름만 오고 값은 `••••••`로 가려집니다. 실행 권한 사용자는 키 이름만 봅니다.
   - 값 보기·수정·삭제는 편집자·관리자만, 그리고 **한 번 더 인증**(인증 앱 코드, 2단계 인증이 없으면 비밀번호)해야 합니다. 10분 동안 유지되고, 드러낸 값은 1분 뒤 다시 가려집니다.

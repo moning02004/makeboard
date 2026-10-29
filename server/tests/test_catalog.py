@@ -61,3 +61,12 @@ def test_custom_service_with_build():
     out = add_compose_service("services:\n  web:\n    image: nginx\n", "worker", body, vol)
     g = analyze({"docker-compose.yml": out})
     assert any(n["kind"] == "Dockerfile" and n["name"] == "worker/Dockerfile" for n in g["nodes"])
+
+
+def test_build_with_named_dockerfile():
+    body, _ = compose_body(BY_ID["custom"], "api", "", None, False, "./api", "Dockerfile.prod")
+    assert yaml.safe_load(body)["build"] == {"context": "./api", "dockerfile": "Dockerfile.prod"}
+    g = analyze({"docker-compose.yml": add_compose_service("services:\n", "api", body, None)})
+    assert any(n["kind"] == "Dockerfile" and n["name"] == "api/Dockerfile.prod" for n in g["nodes"])
+    body, _ = compose_body(BY_ID["custom"], "api", "", None, False, "./api", "Dockerfile")
+    assert yaml.safe_load(body)["build"] == "./api"  # 기본 이름이면 짧게

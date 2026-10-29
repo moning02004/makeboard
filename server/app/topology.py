@@ -352,7 +352,8 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
             if did not in g.nodes:
                 text_ = g.dockerfiles.get(dfp)
                 if text_ is None:
-                    g.add(did, "Dockerfile", dfp, missing=True, editable=False)
+                    # 아직 없는 Dockerfile: 패널에서 써서 저장하면 만든다
+                    g.add(did, "Dockerfile", dfp, file=dfp, missing=True, editable=True, text="")
                 else:
                     g.add(did, "Dockerfile", dfp, file=dfp, editable=True, text=text_, summary=_dockerfile_summary(text_))
             g.link(did, f"{path}|svc|{name}", "build")
@@ -545,11 +546,21 @@ async def save_node(service_id: int, body: NodeIn, user: str = Editor) -> dict:
     """노드(리소스) 하나를 고치거나(text) 지운다(text 없음). 파일의 나머지는 그대로 둔다."""
     svc, _ = await files._service(service_id)
     path = body.id.split("|", 1)[0]
-    current = await files._read(svc, path)
-    if sha(current) != body.sha:
+    is_df = files.is_dockerfile(path) and body.id.endswith("|dockerfile|")
+    try:
+        current = await files._read(svc, path)
+    except HTTPException:
+        if not is_df:
+            raise
+        current = ""  # 아직 없는 Dockerfile 을 처음 만든다
+    if body.sha and sha(current) != body.sha:
         raise HTTPException(409, "파일이 그사이 바뀌었습니다. 다시 불러오세요")
-    if files.is_dockerfile(path):
+    if not body.sha and current:
+        raise HTTPException(409, "그사이 파일이 생겼습니다. 다시 불러오세요")
+    if is_df:
         new, label = _splice(current, body.id, body.text)
+        if not current and files.dockerfile_error(new):
+            raise HTTPException(422, files.dockerfile_error(new))
         files._check_editable(current, new, path)
     else:
         if body.text is not None:

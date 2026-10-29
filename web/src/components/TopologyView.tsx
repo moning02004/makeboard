@@ -232,7 +232,7 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
                   )}
                 </span>
                 <span className="font-mono text-[13px] font-semibold truncate">{n.name}</span>
-                <span className="text-[11px] text-faint truncate">{n.missing ? '파일에 없음' : brief(n) || ' '}</span>
+                <span className="text-[11px] text-faint truncate">{n.missing ? (n.editable ? '아직 없음 · 눌러서 만들기' : '파일에 없음') : brief(n) || ' '}</span>
               </button>
             )
           })}
@@ -299,7 +299,8 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [askDelete, setAskDelete] = useState(false)
-  const editable = canEdit && !!node.editable && !node.missing
+  // 아직 없는 Dockerfile 처럼 missing 이어도 editable 이면 써서 만들 수 있다
+  const editable = canEdit && !!node.editable
   const dirty = text !== (node.text ?? '')
   const name = (id: string) => topo.nodes.find((n) => n.id === id)
   const outs = topo.edges.filter((e) => e.from === node.id)
@@ -309,7 +310,7 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
     if (!node.file) return
     setBusy(true); setError('')
     try {
-      const r = await api.saveTopoNode(serviceId, node.id, topo.files[node.file], value)
+      const r = await api.saveTopoNode(serviceId, node.id, topo.files[node.file] ?? '', value)
       if (value === null) { onClose(); onSaved(`${node.name} 을(를) 지웠습니다`) }
       else onSaved(r.changed ? `${node.name} 을(를) 저장했습니다` : '바뀐 내용이 없습니다', { kind: node.kind, name: node.name })
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
@@ -335,7 +336,7 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
         <div className="min-w-0 flex-1">
           <span className={`text-[10.5px] font-semibold px-1.5 py-px rounded ${TONE[toneOf(node.kind)]}`}>{node.kind}</span>
           <h3 className="font-mono text-[16px] font-semibold truncate mt-1">{node.name}</h3>
-          <p className="text-[12px] text-faint font-mono truncate">{node.missing ? '파일에 없는 리소스' : node.file}</p>
+          <p className="text-[12px] text-faint font-mono truncate">{node.missing ? (node.editable ? `${node.file} · 아직 없음, 저장하면 만듭니다` : '파일에 없는 리소스') : node.file}</p>
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-hover"><Icon name="close" size={16} /></button>
       </div>
@@ -353,13 +354,14 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
             <div className="-mx-2.5">{ins.map((e) => link(e.from, e.kind === 'start' ? '먼저 켜짐' : e.label, 'in'))}{outs.map((e) => link(e.to, e.kind === 'start' ? '나중에 켜짐' : e.label, 'out'))}</div>
           </section>
         )}
-        {node.missing ? (
+        {node.missing && !node.editable ? (
           <p className="text-[12px] text-muted">다른 리소스가 가리키지만 서비스 폴더의 yaml 에는 없습니다. 클러스터에 직접 만든 것일 수 있습니다.</p>
         ) : node.text !== undefined && (
           <section className="flex flex-col gap-1.5 min-h-0">
-            <h4 className="text-[12px] font-medium text-faint">yaml {node.readonly && <span className="text-warn font-normal">· {node.readonly}</span>}</h4>
+            <h4 className="text-[12px] font-medium text-faint">{node.kind === 'Dockerfile' ? 'Dockerfile' : 'yaml'} {node.readonly && <span className="text-warn font-normal">· {node.readonly}</span>}</h4>
             {editable
               ? <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={`${node.name} yaml`}
+                  placeholder={node.kind === 'Dockerfile' ? 'FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nCMD ["python", "main.py"]' : undefined}
                   onKeyDown={(e) => editorKeyDown(e, setText, () => { if (dirty && !busy) void save(text) })}
                   className="w-full h-[320px] rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
               : <pre className="rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[360px]">{node.text || '(내용 없음)'}</pre>}
