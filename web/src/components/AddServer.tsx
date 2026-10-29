@@ -75,11 +75,11 @@ export function AddServer({ servers, edit, onClose }: { servers: ServerWithServi
         <div>
           <h3 id="mTitle" className="text-[17px] font-semibold">{edit ? '바꾼 설정 적용하기' : '설치 명령어'}</h3>
           <p className="text-[13px] text-muted mt-1">{edit
-            ? <><span className="font-mono">{result.agent_id}</span> 서버의 터미널에서 실행해야 적용됩니다. 에이전트도 최신 버전으로 바뀝니다.</>
-            : '추가할 서버의 터미널에 붙여넣으세요. 그 서버에는 Docker 만 있으면 됩니다.'}</p>
+            ? <><span className="font-mono">{result.agent_id}</span> 에서 실행하면 적용되고, 에이전트도 최신이 됩니다.</>
+            : '추가할 서버의 터미널에 붙여넣으세요 (Docker 필요).'}</p>
         </div>
         <pre ref={pre} className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre-wrap break-all">{result.command}</pre>
-        <p className="text-[12px] text-faint">토큰은 지금만 볼 수 있습니다. 이전 명령어는 더 이상 쓸 수 없습니다.</p>
+        <p className="text-[12px] text-faint">토큰이 들어 있어 지금만 볼 수 있습니다.</p>
         <div className="flex items-center gap-2.5 rounded-xl border border-line px-4 py-3 text-[13px]">
           <span className={`w-2 h-2 rounded-full flex-none ${online ? 'bg-ok' : 'bg-faint animate-pulse'}`} />
           {edit
@@ -104,25 +104,25 @@ export function AddServer({ servers, edit, onClose }: { servers: ServerWithServi
       <div>
         <h3 id="mTitle" className="text-[17px] font-semibold">{edit ? <>서버 편집 <span className="font-mono text-muted font-normal">{edit.id}</span></> : '서버 추가'}</h3>
         <p className="text-[13px] text-muted mt-1">{edit
-          ? '저장하면 그 서버에서 실행할 명령어가 나옵니다. 실행해야 적용됩니다.'
-          : '설치 명령어 한 줄을 만들어 드립니다. 서비스 폴더 바로 아래 폴더는 모두 서비스가 됩니다.'}</p>
+          ? '저장 후 나오는 명령어를 그 서버에서 실행하세요.'
+          : '설치 명령어를 만듭니다.'}</p>
       </div>
       {!edit && <label className="flex flex-col gap-1.5 text-[12px] text-muted">서버 이름
         <input className={`${inp} font-mono`} value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="off" spellCheck={false} placeholder="server-105" />
       </label>}
-      <label className="flex flex-col gap-1.5 text-[12px] text-muted">서비스 폴더 <span className="text-faint">여러 개는 쉼표로 구분</span>
+      <label className="flex flex-col gap-1.5 text-[12px] text-muted">서비스 폴더 <span className="text-faint">하위 폴더가 각각 서비스 · 여러 개는 쉼표로</span>
         <input className={`${inp} font-mono`} value={scan} onChange={(e) => setScan(e.target.value)} autoComplete="off" spellCheck={false}
           placeholder={loaded ? '/home/ubuntu/services' : '불러오는 중…'} disabled={!loaded} />
       </label>
       <div className="flex flex-col gap-2">
-        <Toggle on={k8s} onChange={setK8s} label="쿠버네티스 사용" hint="k3s 같은 클러스터에 kubectl 로 배포하는 서버" />
+        <Toggle on={k8s} onChange={setK8s} label="쿠버네티스 사용" hint="kubectl 로 배포하는 서버 (k3s 등)" />
         {k8s && (
           <label className="flex flex-col gap-1.5 text-[12px] text-muted">kubeconfig 경로 <span className="text-faint">서비스 폴더 소유자가 읽을 수 있는 파일</span>
             <input className={`${inp} font-mono`} value={kubeconfig} onChange={(e) => setKubeconfig(e.target.value)} autoFocus autoComplete="off" spellCheck={false} placeholder="/home/ubuntu/.kube/config" />
           </label>
         )}
       </div>
-      <p className="text-[12px] text-faint">에이전트는 <span className="font-mono">{url || '…'}</span> 로 접속합니다. 바꾸려면 설정에서 서버 주소를 고치세요.</p>
+      <p className="text-[12px] text-faint" title="설정에서 바꿀 수 있습니다">접속 주소 <span className="font-mono">{url || '…'}</span></p>
       {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onClose} className="h-9 px-4 rounded-full text-[13px] text-muted hover:bg-hover">취소</button>

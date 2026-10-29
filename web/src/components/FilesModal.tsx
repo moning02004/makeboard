@@ -20,7 +20,7 @@ export function FilesModal({ service, canEdit, onSync, onClose }: {
   useEffect(() => { api.files(service.id).then(setFiles).catch((e) => setListError((e as Error).message)) }, [service.id])
 
   const options = [
-    { value: MAKEFILE, label: 'Makefile', description: '명령어 정의 · 노드 편집으로 고칩니다' },
+    { value: MAKEFILE, label: 'Makefile', description: '노드 편집으로 고칩니다' },
     ...files.map((f) => ({ value: f.path, label: f.path, description: `${(f.size / 1024).toFixed(1)} KB` })),
   ]
   return (
@@ -33,9 +33,9 @@ export function FilesModal({ service, canEdit, onSync, onClose }: {
         <div className={dirty ? 'pointer-events-none opacity-60' : ''}>
           <Select label="파일" value={pick} onChange={setPick} options={options} />
         </div>
-        {dirty && <span className="text-[12px] text-warn">저장하지 않은 변경이 있습니다. 저장하거나 되돌린 뒤 다른 파일을 여세요.</span>}
+        {dirty && <span className="text-[12px] text-warn">저장하지 않은 변경이 있습니다</span>}
         {listError && <span className="text-[12px] text-muted">yaml 파일 목록을 불러오지 못했습니다: {listError}</span>}
-        {!listError && files.length === 0 && <span className="text-[12px] text-faint">이 서비스 폴더에는 yaml 파일이 없습니다.</span>}
+        {!listError && files.length === 0 && <span className="text-[12px] text-faint">yaml 파일 없음</span>}
       </div>
       {pick === MAKEFILE
         ? <MakefileView service={service} onSync={onSync} onClose={onClose} />
@@ -58,7 +58,7 @@ function MakefileView({ service, onSync, onClose }: { service: ServiceDetail; on
     {service.sync_error && <p className="text-[13px] text-fail">{service.sync_error}</p>}
     <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[460px]">{service.makefile || '(비어 있음)'}</pre>
     <div className="flex items-center gap-2">
-      <span className="text-[12px] text-faint mr-auto">{note || (service.synced_at ? `${when(service.synced_at)} 동기화 · 이전 내용은 서버의 Makefile.makeboard.bak 에 남습니다` : '')}</span>
+      <span className="text-[12px] text-faint mr-auto" title="웹에서 저장하면 이전 내용은 서버의 Makefile.makeboard.bak 에 남습니다">{note || (service.synced_at ? `${when(service.synced_at)} 동기화` : '')}</span>
       <button type="button" onClick={sync} disabled={busy} className={`${btn} border border-line hover:bg-hover`}><Icon name="refresh" size={14} />다시 불러오기</button>
       <button type="button" onClick={copy} className={`${btn} border border-line hover:bg-hover`}>복사</button>
       <button type="button" onClick={onClose} className={`${btn} text-muted hover:bg-hover`}>닫기</button>
@@ -98,7 +98,7 @@ function YamlView({ serviceId, path, canEdit, onDirty, onClose }: {
       setNote(r.changed ? msg : '바뀐 내용이 없습니다')
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
-  const save = () => run(() => api.saveFile(serviceId, path, text, file!.sha), '저장했습니다. 적용하려면 배포 명령어를 실행하세요')
+  const save = () => run(() => api.saveFile(serviceId, path, text, file!.sha), '저장했습니다')
   const revert = (rev: number) => run(() => api.revertFile(serviceId, rev, file!.sha), `${rev}번 버전으로 되돌렸습니다`)
 
   // 탭 키는 들여쓰기(공백 2칸), Ctrl/Cmd+S 는 저장
@@ -160,7 +160,7 @@ function YamlView({ serviceId, path, canEdit, onDirty, onClose }: {
     )}
 
     <div className="flex items-center gap-2">
-      <span className="text-[12px] text-faint mr-auto">{note || (editable ? '저장해도 바로 적용되지는 않습니다. 배포 명령어를 실행해야 반영됩니다.' : canEdit ? '' : '보기만 할 수 있습니다. 고치려면 편집 권한이 필요합니다.')}</span>
+      <span className="text-[12px] text-faint mr-auto">{note || (editable ? '저장 후 배포해야 반영됩니다' : canEdit ? '' : '보기 전용')}</span>
       <button type="button" onClick={() => void load()} disabled={busy || dirty} className={`${btn} border border-line hover:bg-hover`}><Icon name="refresh" size={14} />다시 불러오기</button>
       {editable && dirty && <button type="button" onClick={() => { setText(file.content); setError('') }} disabled={busy} className={`${btn} text-muted hover:bg-hover`}>변경 취소</button>}
       {editable

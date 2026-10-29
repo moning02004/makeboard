@@ -130,7 +130,7 @@ export function Panel(p: PanelProps) {
             {helpLines(m).map((l, i) => <div key={i}>{l.map((s, j) => <span key={j} className={s.c || ''}>{s.t}</span>)}{l.length === 1 && !l[0].t ? ' ' : ''}</div>)}
           </pre>
           <p className="text-[12px] text-faint mt-2">타깃 줄 끝의 <span className="font-mono">## 설명</span>과 <span className="font-mono">##@ 그룹</span> 주석으로 만듭니다.</p>
-          {nd.virtual && <p className="text-[12px] text-warn mt-1">아직 서버의 Makefile에는 help가 없습니다. 노드를 한 번 추가하거나 저장하면 파일에 함께 들어갑니다.</p>}
+          {nd.virtual && <p className="text-[12px] text-warn mt-1">서버 Makefile에는 아직 없습니다. 다음 저장 때 추가됩니다.</p>}
         </section>
       )}
 

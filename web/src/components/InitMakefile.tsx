@@ -23,9 +23,7 @@ export function InitMakefile({ service, onDone, onError }: { service: ServiceDet
     <div className="w-full max-w-[640px] bg-panel border border-line rounded-2xl shadow-xl p-6 flex flex-col gap-4 text-left">
       <div>
         <h2 className="text-[17px] font-semibold">Makefile이 없습니다</h2>
-        <p className="text-[13px] text-muted mt-1">
-          <span className="font-mono">{service.server?.id}:{service.path}</span> 에 템플릿으로 새로 만듭니다. 만든 뒤 노드를 편집해 채워 나가면 됩니다.
-        </p>
+        <p className="text-[13px] text-muted mt-1">템플릿을 골라 만들고, 노드를 편집해 채우세요.</p>
       </div>
       <div className="flex flex-col gap-1.5">
         <span className="text-[12px] text-muted">템플릿</span>

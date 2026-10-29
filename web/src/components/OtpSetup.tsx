@@ -11,7 +11,7 @@ export function RecoveryCodes({ codes, onDone, doneLabel = '저장했습니다' 
   }
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[13px] text-muted">휴대폰을 잃어버렸을 때 코드 대신 쓰는 <b className="text-fg">복구 코드</b>입니다. 하나씩 한 번만 쓸 수 있고, <b className="text-fg">지금만 볼 수 있습니다.</b> 비밀번호 관리자 등 안전한 곳에 저장하세요.</p>
+      <p className="text-[13px] text-muted">휴대폰을 잃어버렸을 때 쓰는 복구 코드입니다. 각각 한 번씩 쓸 수 있습니다.<br /><b className="text-fg">지금만 볼 수 있으니 안전한 곳에 저장하세요.</b></p>
       <ul className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-xl bg-hover px-5 py-4 font-mono text-[14px] tabular-nums select-all">
         {codes.map((c) => <li key={c}>{c}</li>)}
       </ul>
@@ -43,17 +43,13 @@ export function OtpSetup({ onDone, onCancel }: { onDone: () => void; onCancel?: 
   if (codes) return <RecoveryCodes codes={codes} onDone={onDone} doneLabel="저장했습니다, 계속" />
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
-      <ol className="text-[13px] text-muted flex flex-col gap-1 list-decimal pl-5">
-        <li>휴대폰의 인증 앱(Google Authenticator, 1Password, Authy 등)을 엽니다.</li>
-        <li>아래 QR 코드를 찍어 Makeboard 를 추가합니다.</li>
-        <li>앱에 보이는 6자리 코드를 입력합니다.</li>
-      </ol>
+      <p className="text-[13px] text-muted" title="Google Authenticator, 1Password, Authy 등">인증 앱으로 QR을 찍고, 앱에 뜬 6자리 코드를 입력하세요.</p>
       <div className="flex flex-col sm:flex-row items-center gap-4">
         <div className="w-[180px] h-[180px] flex-none rounded-xl bg-white grid place-items-center border border-line">
           {setup ? <img src={setup.qr} alt="2단계 인증 등록용 QR 코드" className="w-[164px] h-[164px] [image-rendering:pixelated]" /> : <span className="text-[12px] text-muted">불러오는 중…</span>}
         </div>
         <div className="flex flex-col gap-1.5 min-w-0 text-[12px] text-muted">
-          QR 을 찍을 수 없으면 이 키를 직접 입력하세요
+          QR 대신 직접 입력할 키
           <code className="font-mono text-[13px] text-fg break-all rounded-lg bg-hover px-3 py-2 select-all">{setup?.secret.replace(/(.{4})/g, '$1 ').trim() ?? '…'}</code>
         </div>
       </div>

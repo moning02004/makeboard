@@ -92,8 +92,7 @@ async def _service(service_id: int) -> tuple[Service, Server]:
     if not hub.online(svc.server_id):
         raise HTTPException(409, "에이전트가 오프라인이라 파일을 볼 수 없습니다")
     if _version(srv.version if srv else "") < MIN_AGENT:
-        raise HTTPException(409, f"에이전트를 0.4.0 이상으로 업데이트해야 파일을 볼 수 있습니다 (지금 {srv.version if srv else '-'}). "
-                                 "서버 목록의 '편집'에서 저장하고 나온 명령어를 그 서버에서 실행하세요")
+        raise HTTPException(409, f"에이전트 업데이트가 필요합니다 (지금 {srv.version if srv else '-'}, 0.4.0 이상). 서버 편집 → 저장으로 업데이트하세요")
     return svc, srv
 
 
@@ -125,7 +124,7 @@ async def read_file(service_id: int, path: str, user: str = Member) -> dict:
     text = await _read(svc, path)
     secret = has_secret(text)
     return {"path": path, "content": mask_secrets(text) if secret else text, "sha": sha(text),
-            "readonly": "쿠버네티스 Secret 이 들어 있어 값을 가리고 보기만 합니다" if secret else None}
+            "readonly": "Secret 값은 가리고 보기만 됩니다" if secret else None}
 
 
 class SaveIn(BaseModel):
@@ -152,7 +151,7 @@ async def _write(svc: Service, path: str, old: str, content: str, user: str, not
 
 def _check_editable(current: str, content: str) -> None:
     if has_secret(current) or has_secret(content):
-        raise HTTPException(409, "쿠버네티스 Secret 이 든 파일은 웹에서 고칠 수 없습니다. 서버에서 직접 고치세요")
+        raise HTTPException(409, "Secret 이 든 파일은 웹에서 고칠 수 없습니다")
     # 원래부터 yaml 로 읽히지 않는 파일(Helm 템플릿 등)은 문법 검사를 하지 않는다
     if yaml_error(current) is None:
         err = yaml_error(content)

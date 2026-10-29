@@ -37,7 +37,7 @@ export function Login({ onDone }: { onDone: () => void }) {
         {ticket ? <>
           <div>
             <h1 className="text-[18px] font-semibold">2단계 인증</h1>
-            <p className="text-[13px] text-muted mt-1">인증 앱에 보이는 6자리 코드를 입력하세요. 휴대폰이 없으면 복구 코드를 입력하세요.</p>
+            <p className="text-[13px] text-muted mt-1">인증 앱의 6자리 코드를 입력하세요.<span className="block text-faint">휴대폰이 없으면 복구 코드</span></p>
           </div>
           <label className="flex flex-col gap-1.5 text-[12px] text-muted">인증 코드
             <input id="otp" autoFocus value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" inputMode="text"

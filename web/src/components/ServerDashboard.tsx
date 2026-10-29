@@ -81,7 +81,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
             {[server.hostname, m.uptime ? `가동 ${uptime(m.uptime)}` : '', server.version ? `에이전트 ${server.version}` : ''].filter(Boolean).join(' · ')}
           </span>
           <span className="ml-auto flex items-center gap-2">
-          {onEdit && !server.pending && (
+          {onEdit && !server.pending && server.managed !== false && (
             <button type="button" onClick={onEdit} title="서비스 폴더·쿠버네티스 설정을 바꾸거나 에이전트를 최신으로 업데이트합니다"
               className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">
               <Icon name="edit" size={13} sw={2} />편집
@@ -112,7 +112,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
           </section>
         </> : (
           <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">
-            {server.pending ? '아직 연결된 적이 없습니다. 추가할 서버에서 설치 명령어를 실행하세요.' : '오프라인이라 리소스를 볼 수 없습니다.'}
+            {server.pending ? '연결 대기 중입니다. 그 서버에서 설치 명령어를 실행하세요.' : '오프라인이라 리소스를 볼 수 없습니다.'}
           </p>
         )}
 
@@ -132,7 +132,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
           </div>
           {server.services.length === 0 ? (
             <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">
-              서비스 폴더가 비어 있습니다. 에이전트가 보는 폴더 아래에 서비스 폴더가 있는지 확인하세요.
+              서비스가 없습니다. 서비스 폴더 경로를 확인하세요.
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -168,7 +168,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
               })}
             </div>
           )}
-          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint">CPU는 서버 전체 대비입니다. 막대는 이 서버에서 가장 많이 쓰는 서비스를 기준으로 한 비교입니다. CPU·메모리는 15초, 디스크(서비스 폴더 크기)는 5분마다 갱신됩니다.</p>}
+          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint" title="막대는 이 서버에서 가장 많이 쓰는 서비스 기준입니다. 디스크(서비스 폴더 크기)는 5분마다 갱신됩니다.">CPU는 서버 전체 대비 · 15초마다 갱신</p>}
         </section>
       </div>
     </div>
