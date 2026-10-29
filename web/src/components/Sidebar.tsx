@@ -39,7 +39,7 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
       <div className="flex-1 min-h-0 rounded-2xl bg-panel border border-line flex flex-col overflow-hidden">
       <div className="px-3 pt-3.5 pb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-faint px-2">서버</span>
-        {onHelp && <button type="button" onClick={onHelp} className="text-xs font-semibold text-accent bg-accentsoft hover:brightness-95 px-3 py-1.5 rounded-full">+ 서버 추가</button>}
+        {onHelp && <button type="button" onClick={onHelp} className="text-xs font-semibold text-accent bg-accentsoft hover:brightness-95 pl-2.5 pr-3 py-1.5 rounded-full inline-flex items-center gap-1"><Icon name="plus" size={12} sw={2.6} />서버 추가</button>}
       </div>
       <nav className="flex-1 overflow-auto scroll-thin px-2.5 pb-3 flex flex-col gap-1" aria-label="서버">
         {connected.length === 0 && (

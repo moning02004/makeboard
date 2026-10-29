@@ -6,7 +6,7 @@ import type { ServiceDetail } from '../types'
 import { Select } from './Select'
 
 const MAKEFILE = '__makefile__'
-const btn = 'h-8 px-3 rounded-full text-[12px] inline-flex items-center gap-1.5 disabled:opacity-50'
+const btn = 'h-9 px-4 rounded-full text-[13px] inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50'
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '')
 
 /** 서비스 폴더의 Makefile 과 yaml 파일. yaml 은 편집 권한이 있으면 고치고, 버전 기록에서 되돌릴 수 있다 */
@@ -26,9 +26,9 @@ export function FilesModal({ service, canEdit, onSync, onClose }: {
   ]
   return (
     <div className="p-6 flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <h3 id="mTitle" className="text-[17px] font-semibold flex-none">파일</h3>
-        <span className="text-[12px] text-muted font-mono truncate min-w-0">{service.server?.id}:{service.path}</span>
+      <div className="min-w-0">
+        <h3 id="mTitle" className="text-[17px] font-semibold">파일</h3>
+        <p className="text-[13px] text-muted mt-1 font-mono truncate">{service.server?.id}:{service.path}</p>
       </div>
       <div className="flex flex-col gap-1">
         <div className={dirty ? 'pointer-events-none opacity-60' : ''}>
@@ -57,7 +57,7 @@ function MakefileView({ service, onSync, onClose }: { service: ServiceDetail; on
   }
   return <>
     {service.sync_error && <p className="text-[13px] text-fail">{service.sync_error}</p>}
-    <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[460px]">{service.makefile || '(비어 있음)'}</pre>
+    <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{service.makefile || '(비어 있음)'}</pre>
     <div className="flex items-center gap-2">
       <span className="text-[12px] text-faint mr-auto" title="웹에서 저장하면 이전 내용은 서버의 Makefile.makeboard.bak 에 남습니다">{note || (service.synced_at ? `${when(service.synced_at)} 동기화` : '')}</span>
       <button type="button" onClick={sync} disabled={busy} className={`${btn} border border-line hover:bg-hover`}><Icon name="refresh" size={14} />다시 불러오기</button>
@@ -120,9 +120,9 @@ function YamlView({ serviceId, path, canEdit, onDirty, onClose }: {
       </div>
     ) : editable ? (
       <textarea ref={area} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} spellCheck={false} aria-label={`${path} 내용`}
-        className="w-full h-[420px] rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
+        className="w-full h-[50vh] rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
     ) : (
-      <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[420px]">{file.content || '(비어 있음)'}</pre>
+      <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{file.content || '(비어 있음)'}</pre>
     )}
     {error && <p role="alert" className="text-[13px] text-fail whitespace-pre-wrap">{error}</p>}
 

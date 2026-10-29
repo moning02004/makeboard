@@ -83,9 +83,11 @@ function place(t: Topology, auto: Map<string, { x: number; y: number }>, saved: 
 }
 
 /** 서비스 폴더의 compose·쿠버네티스 yaml 구성도. 노드를 누르면 오른쪽 패널에서 그 리소스의 yaml 을 보고 고치거나 지운다 */
-export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me: Me; onToast: (m: string) => void }) {
+export function TopologyView({ serviceId, me, onToast, addSignal = 0 }: { serviceId: number; me: Me; onToast: (m: string) => void; addSignal?: number }) {
   const canEdit = me.edit
   const [adding, setAdding] = useState(false)
+  // 헤더의 '노드 추가'를 누를 때마다 App 이 addSignal 을 올린다
+  useEffect(() => { if (addSignal && canEdit) setAdding(true) }, [addSignal, canEdit])
   const [raw, setRaw] = useState<Topology | null>(null)
   const [error, setError] = useState('')
   const [sel, setSel] = useState<string | null>(null)
@@ -144,6 +146,7 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
   const pickFile = (f: string) => { setFile(f); storageSet(fileKey(serviceId), f); setSel(null) }
   const topo = useMemo(() => (raw ? filterByFile(raw, activeFile) : null), [raw, activeFile])
 
+  const top = yamlFiles.length > 1 ? 64 : 0 // 떠 있는 '볼 파일' 아래로 그림을 내린다
   const auto = useMemo(() => (topo ? layout(topo) : null), [topo])
   const [saved, setSaved] = useState<Record<string, { x: number; y: number }>>({})
   useEffect(() => { if (raw) setSaved(raw.positions || {}) }, [raw])
@@ -192,7 +195,7 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
       <div className="flex flex-col gap-1.5">
         <p className="text-[15px] font-medium">구성을 그릴 yaml이 없습니다</p>
         <p className="text-[13px] text-muted">docker-compose.yml 이나 쿠버네티스 yaml 을 서비스 폴더에 두면 여기에 나타납니다.</p>
-        {canEdit && <button type="button" onClick={() => setAdding(true)} className="mt-2 self-center h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">+ 노드 추가</button>}
+        {canEdit && <button type="button" onClick={() => setAdding(true)} className="mt-2 self-center h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold inline-flex items-center gap-1.5"><Icon name="plus" size={14} sw={2.4} />노드 추가</button>}
       </div>
       {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={raw!} preferFile={activeFile} onClose={() => setAdding(false)}
         onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
@@ -203,22 +206,19 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
     <div className="relative flex-1 min-w-0 flex overflow-hidden">
       <div className="flex-1 min-w-0 flex flex-col">
       {yamlFiles.length > 1 && (
-        <div className="flex-none px-3 pt-1 pb-2 flex items-center gap-2">
-          <div className="w-[300px] max-w-full">
-            <Select label="볼 파일" value={activeFile} onChange={pickFile} options={[
-              { value: '', label: '모든 파일', description: `yaml ${yamlFiles.length}개` },
-              ...yamlFiles.map(([f, c]) => ({ value: f, label: f, description: `리소스 ${c}개` })),
-            ]} />
-          </div>
-          {activeFile && <span className="text-[12px] text-faint hidden sm:inline">이 파일과 이어진 노드도 함께 보입니다</span>}
+        <div className="absolute left-3 top-3 z-10 w-[280px] max-w-[calc(100%-24px)]">
+          <Select label="볼 파일" floating value={activeFile} onChange={pickFile} options={[
+            { value: '', label: '모든 파일', description: `yaml ${yamlFiles.length}개` },
+            ...yamlFiles.map(([f, c]) => ({ value: f, label: f, description: `리소스 ${c}개` })),
+          ]} />
         </div>
       )}
       <div className={`flex-1 overflow-auto scroll-thin bg-[rgb(var(--canvas))] select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         {/* 점 격자 배경은 그림과 함께 스크롤되도록 안쪽에 깐다 */}
-        <div className="relative min-w-full min-h-full" style={{ width: lay.width, height: lay.height,
+        <div className="relative min-w-full min-h-full" style={{ width: lay.width, height: lay.height + top, marginTop: 0, paddingTop: top,
           backgroundImage: 'radial-gradient(rgb(var(--dot)) 1.2px, transparent 1.3px)', backgroundSize: '22px 22px' }}>
-          <svg className="absolute inset-0 pointer-events-none" width={lay.width} height={lay.height} aria-hidden="true">
+          <svg className="absolute left-0 pointer-events-none" style={{ top }} width={lay.width} height={lay.height} aria-hidden="true">
             <defs>
               <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M0 0L8 4L0 8z" fill="rgb(var(--faint))" />
@@ -255,7 +255,7 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
                 onPointerDown={(e) => onNodeDown(e, n)} onPointerMove={onNodeMove} onPointerUp={onNodeUp} onPointerCancel={onNodeUp}
                 onMouseEnter={() => setHover(n.id)} onMouseLeave={() => setHover(null)}
                 title={n.missing ? '파일에 없는 리소스 (클러스터에 따로 있을 수 있습니다)' : n.file}
-                style={{ left: p.x, top: p.y, width: W, height: H }}
+                style={{ left: p.x, top: p.y + top, width: W, height: H }}
                 className={`absolute text-left rounded-2xl px-3.5 py-2.5 flex flex-col justify-center gap-1 transition-opacity
                   ${n.missing ? 'border border-dashed border-edge bg-transparent' : 'bg-panel border border-line [box-shadow:var(--card-shadow)]'}
                   ${sel === n.id ? 'ring-2 ring-accent border-transparent' : 'hover:border-edge'} ${dim ? 'opacity-35' : ''}`}>
@@ -278,21 +278,16 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
       </div>
       </div>
 
-      {canEdit && (
-        <button type="button" onClick={() => setAdding(true)}
-          className="absolute right-4 bottom-3 h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold inline-flex items-center gap-1.5 hover:brightness-110 shadow-lg">
-          <Icon name="plus" size={14} sw={2.4} />노드 추가</button>
-      )}
       {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={raw!} preferFile={activeFile} onClose={() => setAdding(false)}
         onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
 
       <div className="absolute left-3 bottom-3 flex items-center gap-2">
-        <button type="button" onClick={() => void load(node ? { kind: node.kind, name: node.name } : undefined)}
-          className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg inline-flex items-center gap-1.5 [box-shadow:var(--card-shadow)]">
-          <Icon name="refresh" size={13} />다시 불러오기</button>
+        <button type="button" onClick={() => void load(node ? { kind: node.kind, name: node.name } : undefined)} aria-label="다시 불러오기" title="다시 불러오기"
+          className="h-8 px-2.5 sm:px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg inline-flex items-center gap-1.5 whitespace-nowrap [box-shadow:var(--card-shadow)]">
+          <Icon name="refresh" size={13} /><span className="hidden sm:inline">다시 불러오기</span></button>
         {Object.keys(saved).length > 0 && (
           <button type="button" onClick={resetLayout} title="끌어서 옮긴 위치를 지우고 자동으로 배치합니다"
-            className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">자동 정렬</button>
+            className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg whitespace-nowrap [box-shadow:var(--card-shadow)]">자동 정렬</button>
         )}
         <Legend kinds={new Set(topo.edges.map((e) => e.kind))} />
         {topo.errors.length > 0 && <span className="text-[12px] text-warn bg-panel rounded-full px-3 py-1.5" title={topo.errors.join('\n')}>건너뛴 파일 {topo.errors.length}개</span>}
@@ -319,7 +314,7 @@ function Legend({ kinds }: { kinds: Set<string> }) {
   ] as const).filter(([k]) => kinds.has(k))
   if (!items.length) return null
   return (
-    <span className="h-8 px-3 rounded-full bg-panel text-[11.5px] text-muted inline-flex items-center gap-3 [box-shadow:var(--card-shadow)]">
+    <span className="h-8 px-3 rounded-full bg-panel text-[11.5px] text-muted hidden md:inline-flex items-center gap-3 [box-shadow:var(--card-shadow)]">
       {items.map(([k, dashed, label]) => (
         <span key={k} className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <svg width="22" height="8" aria-hidden="true"><path d="M1 4H16" stroke="rgb(var(--faint))" strokeWidth="1.4" strokeDasharray={dashed ? '3 3' : undefined} /><path d="M15 1L21 4L15 7z" fill="rgb(var(--faint))" /></svg>

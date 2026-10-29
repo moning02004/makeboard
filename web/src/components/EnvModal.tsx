@@ -76,9 +76,9 @@ export function EnvModal({ serviceId, me, onClose }: { serviceId: number; me: Me
 
   return (
     <div className="p-6 flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <h3 id="mTitle" className="text-[17px] font-semibold mr-auto">환경변수</h3>
-        <button type="button" onClick={() => void load()} className={`${small} border border-line hover:bg-hover inline-flex items-center gap-1`}><Icon name="refresh" size={13} />다시 불러오기</button>
+      <div>
+        <h3 id="mTitle" className="text-[17px] font-semibold">환경변수</h3>
+        <p className="text-[13px] text-muted mt-1">{canEdit ? '값은 가려져 있습니다. 보기·수정하려면 한 번 더 인증합니다.' : '값은 편집 권한이 있어야 볼 수 있습니다.'}</p>
       </div>
 
       {error && !files && <p className="text-[13px] text-muted">{error}</p>}
@@ -110,7 +110,7 @@ export function EnvModal({ serviceId, me, onClose }: { serviceId: number; me: Me
             return (
               <li key={key} className="px-3.5 py-2 flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-mono text-[12.5px] font-semibold truncate flex-none max-w-[45%]">{key}</span>
+                  <span className="font-mono text-[12.5px] font-semibold truncate flex-none w-[38%]" title={key}>{key}</span>
                   {!isEditing && (
                     <span className={`font-mono text-[12.5px] truncate min-w-0 ${v === undefined ? 'text-faint tracking-wider' : ''}`} title={v}>
                       {v === undefined ? (empty ? '(비어 있음)' : MASK) : v || '(비어 있음)'}
@@ -162,9 +162,10 @@ export function EnvModal({ serviceId, me, onClose }: { serviceId: number; me: Me
 
       {error && files && <p role="alert" className="text-[13px] text-fail">{error}</p>}
       <div className="flex items-center gap-2">
-        <span className="text-[12px] text-faint mr-auto" title="값은 서버에 저장하지 않고, 누가 어떤 키를 보고 바꿨는지만 기록합니다">
-          {note || (canEdit ? '보기·수정은 기록에 남습니다 · 저장 후 다시 시작해야 반영' : '값은 편집 권한이 있어야 볼 수 있습니다')}</span>
-        <button type="button" onClick={onClose} className={`${small} h-9 px-4 text-muted hover:bg-hover`}>닫기</button>
+        <span className="text-[12px] text-faint mr-auto min-w-0 truncate" title="값은 서버에 저장하지 않고, 누가 어떤 키를 보고 바꿨는지만 기록합니다">
+          {note || (canEdit && file ? '기록에 남습니다 · 저장 후 다시 시작해야 반영' : '')}</span>
+        <button type="button" onClick={() => void load()} className="h-9 px-4 rounded-full border border-line text-[13px] hover:bg-hover inline-flex items-center gap-1.5 whitespace-nowrap"><Icon name="refresh" size={14} />다시 불러오기</button>
+        <button type="button" onClick={onClose} className="h-9 px-4 rounded-full text-[13px] text-muted hover:bg-hover">닫기</button>
       </div>
     </div>
   )

@@ -5,8 +5,10 @@ export interface SelectOption { value: string; label: string; description?: stri
 
 /** 기본 select 처럼 쓰는 드롭다운. 항목마다 설명을 한 줄 더 보여줄 수 있다.
  *  키보드: Enter·Space·↓ 로 열기, ↑↓ 로 이동, Enter 로 고르기, Esc 로 닫기 */
-export function Select({ value, options, onChange, label, className = '' }: {
+export function Select({ value, options, onChange, label, className = '', floating = false }: {
   value: string; options: SelectOption[]; onChange: (v: string) => void; label: string; className?: string
+  // floating: 캔버스 위에 떠 있는 버튼들과 같은 카드 모양 (흰 배경 + 그림자)
+  floating?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
@@ -48,7 +50,9 @@ export function Select({ value, options, onChange, label, className = '' }: {
       <button type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={`${id}-list`}
         aria-activedescendant={open ? `${id}-${active}` : undefined}
         onClick={() => (open ? setOpen(false) : openList())} onKeyDown={onKey}
-        className={`w-full min-h-10 px-3.5 py-2 rounded-xl bg-bg border text-left flex items-center gap-3 outline-none ${open ? 'border-accent' : 'border-line hover:border-edge focus-visible:border-accent'}`}>
+        className={`w-full min-h-10 px-3.5 py-2 rounded-xl border text-left flex items-center gap-3 outline-none
+          ${floating ? 'bg-panel [box-shadow:var(--card-shadow)]' : 'bg-bg'}
+          ${open ? 'border-accent' : `${floating ? 'border-transparent' : 'border-line'} hover:border-edge focus-visible:border-accent`}`}>
         <span className="flex-1 min-w-0">
           <span className="block text-[14px] font-medium truncate">{current?.label ?? '선택'}</span>
           {current?.description && <span className="block text-[12px] text-muted truncate">{current.description}</span>}

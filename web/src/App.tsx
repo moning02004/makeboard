@@ -100,6 +100,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
   const [editing, setEditing] = useState<ServerWithServices | null>(null)
   // 서비스 화면: Makefile 명령어 카드 또는 compose·쿠버네티스 구성도
+  const [topoAdd, setTopoAdd] = useState(0)
   const [view, setView] = useState<'cmd' | 'topo'>(() => (storage.get('mb:view') === 'topo' ? 'topo' : 'cmd'))
   const pickView = (v: 'cmd' | 'topo') => { setView(v); storage.set('mb:view', v); select(null) }
   const list = useRef<ListHandle>(null)
@@ -299,7 +300,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <Icon name="chevron" size={14} sw={2} className="text-faint hidden sm:inline" />
               <span className="font-semibold truncate">{detail.name}</span>
               {!srv?.online && <span className="text-[11px] px-1.5 rounded bg-hover text-muted">오프라인</span>}
-              {srv?.online && <StatusChip status={liveStatus} />}
+              {srv?.online && <span className="hidden sm:inline-flex"><StatusChip status={liveStatus} /></span>}
               {detail.sha && <span className="text-[12px] text-faint font-mono hidden md:inline" title="Makefile sha256">{detail.sha.slice(0, 8)}</span>}
               {model?.readonly && <span className="text-[11px] px-2 py-0.5 rounded bg-warn/10 text-warn truncate" title={model.readonly}>읽기 전용</span>}
             </> : <span className="text-muted">{loading ? '불러오는 중…' : '서비스를 고르세요'}</span>}
@@ -308,13 +309,18 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <div className="flex-1" />
           {detail && liveStatus && (
             <button type="button" onClick={() => setShowUsage((v) => { storage.set('mb:usage', v ? '0' : '1'); return !v })} aria-pressed={showUsage}
-              className={`inline-flex flex-none whitespace-nowrap h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
+              className={`hidden sm:inline-flex flex-none whitespace-nowrap h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
           {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">파일</button>}
           {detail && <button type="button" onClick={() => setModal('env')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg whitespace-nowrap [box-shadow:var(--card-shadow)]">환경변수</button>}
+          {view === 'topo' && detail && me.edit && (
+            <button type="button" onClick={() => setTopoAdd((n) => n + 1)} aria-label="노드 추가" className="inline-flex flex-none whitespace-nowrap h-8 items-center gap-1.5 px-2.5 sm:px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
+              <Icon name="plus" size={14} sw={2.4} /><span className="hidden sm:inline">노드 추가</span>
+            </button>
+          )}
           {view === 'cmd' && model && !model.readonly && me.edit && (
-            <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
-              <Icon name="plus" size={14} sw={2.4} />노드 추가
+            <button type="button" onClick={() => setEditor({ orig: null })} aria-label="노드 추가" className="inline-flex flex-none whitespace-nowrap h-8 items-center gap-1.5 px-2.5 sm:px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
+              <Icon name="plus" size={14} sw={2.4} /><span className="hidden sm:inline">노드 추가</span>
             </button>
           )}
           <button type="button" onClick={() => setModal('settings')} aria-label="설정" title="설정"
@@ -332,7 +338,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : !svcId && curServer ? (
             <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
           ) : svcId && detail && view === 'topo' ? (
-            <TopologyView serviceId={svcId} me={me} onToast={toast} />
+            <TopologyView serviceId={svcId} me={me} onToast={toast} addSignal={topoAdd} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}

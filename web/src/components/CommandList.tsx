@@ -133,7 +133,7 @@ export const CommandList = forwardRef<ListHandle, Props>(function CommandList(p,
           <section aria-label="복합 명령어">
             <h3 className="text-[12px] font-semibold text-faint mb-2.5">
               <span className="font-mono">## </span>복합 명령어 <span className="font-normal tabular-nums">{comps.length}</span>
-              <span className="font-normal"> · 여러 명령어를 차례대로 또는 동시에 실행</span>
+              <span className="font-normal hidden sm:inline"> · 여러 명령어를 차례대로 또는 동시에 실행</span>
             </h3>
             <div className={wideGrid}>{comps.map((n) => card(n, n))}</div>
           </section>

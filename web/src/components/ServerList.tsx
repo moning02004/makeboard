@@ -1,3 +1,4 @@
+import { Icon } from '../icons'
 import type { ServerWithServices } from '../types'
 import { GaugeRow } from './Gauge'
 import { summarize } from './ServiceStatus'
@@ -11,7 +12,7 @@ export function ServerList({ servers, onOpen, onAdd }: { servers: ServerWithServ
       <div className="max-w-[1200px] mx-auto px-4 lg:px-6 py-5 flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-[18px] font-semibold">서버 <span className="text-faint font-normal tabular-nums">{connected.length}</span></h1>
-          {onAdd && <button type="button" onClick={onAdd} className="ml-auto h-8 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">+ 서버 추가</button>}
+          {onAdd && <button type="button" onClick={onAdd} className="ml-auto h-8 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold inline-flex items-center gap-1.5"><Icon name="plus" size={14} sw={2.4} />서버 추가</button>}
         </div>
         {connected.length === 0 && (
           <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">연결된 서버가 없습니다. '+ 서버 추가'로 설치 명령어를 만드세요.</p>
