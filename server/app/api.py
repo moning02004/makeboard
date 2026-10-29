@@ -482,7 +482,7 @@ class LayoutIn(BaseModel):
 async def save_layout(service_id: int, body: LayoutIn, user: str = Member, s: AsyncSession = Depends(get_session)) -> dict:
     svc, _ = await _load(s, service_id)
     pos = {k: {"x": float(v.get("x", 0)), "y": float(v.get("y", 0))} for k, v in body.positions.items() if NAME_RE.match(k)}
-    svc.layout = {"positions": pos, "favorites": [f for f in body.favorites if NAME_RE.match(f)][:50]}
+    svc.layout = {**(svc.layout or {}), "positions": pos, "favorites": [f for f in body.favorites if NAME_RE.match(f)][:50]}
     await s.commit()
     return svc.layout
 

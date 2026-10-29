@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { api, type TopoNode, type Topology } from '../api'
+import { editorKeyDown } from '../editorKeys'
 import { Icon } from '../icons'
 
 // 카드 크기와 간격 (px)
@@ -33,6 +34,9 @@ function brief(n: TopoNode): string {
     .filter(Boolean).slice(0, 2).join(' · ')
 }
 
+// 저장 위치의 키. 문서 순서가 바뀌어도 같은 리소스를 가리키도록 종류와 이름으로 쓴다
+const posKey = (n: TopoNode) => `${n.kind}:${n.name}`
+
 /** 열(rank)마다 쌓고, 앞 열과 이어진 위치의 평균으로 순서를 맞춰 선이 덜 엉키게 한다 */
 function layout(t: Topology) {
   const ranks = [...new Set(t.nodes.map((n) => n.rank))].sort((a, b) => a - b)
@@ -51,8 +55,14 @@ function layout(t: Topology) {
     })
     place()
   }
-  const width = PAD * 2 + cols.length * W + Math.max(0, cols.length - 1) * GAP_X
-  const height = PAD * 2 + Math.max(1, ...cols.map((c) => c.length)) * (H + GAP_Y) - GAP_Y
+  return pos
+}
+
+/** 자동 배치 위에 저장된 위치(끌어서 옮긴 것)와 지금 끌고 있는 위치를 덮어쓴다 */
+function place(t: Topology, auto: Map<string, { x: number; y: number }>, saved: Record<string, { x: number; y: number }>) {
+  const pos = new Map(auto)
+  t.nodes.forEach((n) => { const p = saved[posKey(n)]; if (p) pos.set(n.id, p) })
+  const xs = [...pos.values()], width = Math.max(0, ...xs.map((p) => p.x)) + W + PAD, height = Math.max(0, ...xs.map((p) => p.y)) + H + PAD
   return { pos, width, height }
 }
 
@@ -104,7 +114,39 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
     return () => window.removeEventListener('keydown', onKey)
   }, [sel])
 
-  const lay = useMemo(() => (topo ? layout(topo) : null), [topo])
+  const auto = useMemo(() => (topo ? layout(topo) : null), [topo])
+  const [saved, setSaved] = useState<Record<string, { x: number; y: number }>>({})
+  useEffect(() => { if (topo) setSaved(topo.positions || {}) }, [topo])
+  const lay = useMemo(() => (topo && auto ? place(topo, auto, saved) : null), [topo, auto, saved])
+
+  // 카드를 마우스로 끌어 옮긴다. 놓으면 저장하고, 끌지 않았으면 그냥 누른 것(선택)
+  const mouseHandled = useRef(false) // 마우스로 누른 것은 onNodeUp 이 처리했다 (터치·키보드는 onClick)
+  const nodeDrag = useRef<{ id: string; key: string; x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null)
+  const persist = (next: Record<string, { x: number; y: number }>) => { api.saveTopoPositions(serviceId, next).catch((e) => setError((e as Error).message)) }
+  const onNodeDown = (e: PointerEvent<HTMLButtonElement>, n: TopoNode) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !lay) return
+    e.stopPropagation()
+    const p = lay.pos.get(n.id)!
+    nodeDrag.current = { id: n.id, key: posKey(n), x: e.clientX, y: e.clientY, ox: p.x, oy: p.y, moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onNodeMove = (e: PointerEvent<HTMLButtonElement>) => {
+    const d = nodeDrag.current
+    if (!d) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return
+    d.moved = true
+    setSaved((s) => ({ ...s, [d.key]: { x: Math.max(0, Math.round(d.ox + dx)), y: Math.max(0, Math.round(d.oy + dy)) } }))
+  }
+  const onNodeUp = (e: PointerEvent<HTMLButtonElement>) => {
+    const d = nodeDrag.current
+    nodeDrag.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+    if (d) mouseHandled.current = true
+    if (d?.moved) setSaved((s) => { persist(s); return s })
+    else if (d) setSel(d.id)
+  }
+  const resetLayout = () => { setSaved({}); persist({}) }
   const node = topo?.nodes.find((n) => n.id === sel) ?? null
   const focus = hover ?? sel
   const near = useMemo(() => {
@@ -164,7 +206,8 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
             const p = lay.pos.get(n.id)!
             const dim = !!focus && focus !== n.id && !near.has(n.id)
             return (
-              <button key={n.id} type="button" onClick={(e) => { e.stopPropagation(); setSel(n.id) }}
+              <button key={n.id} type="button" onClick={(e) => { e.stopPropagation(); if (mouseHandled.current) mouseHandled.current = false; else setSel(n.id) }}
+                onPointerDown={(e) => onNodeDown(e, n)} onPointerMove={onNodeMove} onPointerUp={onNodeUp} onPointerCancel={onNodeUp}
                 onMouseEnter={() => setHover(n.id)} onMouseLeave={() => setHover(null)}
                 title={n.missing ? '파일에 없는 리소스 (클러스터에 따로 있을 수 있습니다)' : n.file}
                 style={{ left: p.x, top: p.y, width: W, height: H }}
@@ -193,6 +236,10 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
         <button type="button" onClick={() => void load(node ? { kind: node.kind, name: node.name } : undefined)}
           className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg inline-flex items-center gap-1.5 [box-shadow:var(--card-shadow)]">
           <Icon name="refresh" size={13} />다시 불러오기</button>
+        {Object.keys(saved).length > 0 && (
+          <button type="button" onClick={resetLayout} title="끌어서 옮긴 위치를 지우고 자동으로 배치합니다"
+            className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">자동 정렬</button>
+        )}
         <Legend kinds={new Set(topo.edges.map((e) => e.kind))} />
         {topo.errors.length > 0 && <span className="text-[12px] text-warn bg-panel rounded-full px-3 py-1.5" title={topo.errors.join('\n')}>건너뛴 파일 {topo.errors.length}개</span>}
       </div>
@@ -298,6 +345,7 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
             <h4 className="text-[12px] font-medium text-faint">yaml {node.readonly && <span className="text-warn font-normal">· {node.readonly}</span>}</h4>
             {editable
               ? <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={`${node.name} yaml`}
+                  onKeyDown={(e) => editorKeyDown(e, setText, () => { if (dirty && !busy) void save(text) })}
                   className="w-full h-[320px] rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
               : <pre className="rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[360px]">{node.text || '(내용 없음)'}</pre>}
           </section>

@@ -135,7 +135,7 @@ def test_compose_graph_and_blocks():
     by = {n["name"]: n for n in g["nodes"]}
     assert [by[k]["rank"] for k in ("pgdata", "db", "api", "web")] == [0, 1, 2, 3]
     assert by["web"]["summary"] == [["image", "nginx:1.27"], ["ports", "8080:80"]] and by["api"]["summary"] == [["build", "."]]
-    assert by["api"]["text"] == "api:\n  build: .\n  depends_on: [db]\n"  # 들여쓰기를 걷어서 보여 준다
+    assert by["api"]["text"] == "build: .\ndepends_on: [db]\n"  # 이름 줄(api:) 없이 내용만
     blocks, child = compose_blocks(COMPOSE)
     assert child == 2 and list(blocks) == ["web", "api", "db"]
 
@@ -147,7 +147,23 @@ def test_splice_keeps_rest_of_file():
     gone = delete_doc(K8S, 0)
     assert not gone.startswith("---") and "kind: Ingress" not in gone and gone.count("---") == K8S.count("---") - 1
     # compose: 서비스 블록만 바꾸고 지우기
-    c2 = replace_block(COMPOSE, "api", "api:\n  build: ./api\n")
+    c2 = replace_block(COMPOSE, "api", "build: ./api\n")
     assert "    build: ./api\n" in c2 and "# API 서버" in c2 and "volumes:\n  pgdata:" in c2
     c3 = replace_block(COMPOSE, "db", None)
     assert "postgres" not in c3 and "volumes:\n  pgdata:" in c3
+
+
+def test_panel_edits_only_one_resource():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.topology import _check_single
+
+    _check_single("a.yaml|doc|0", "kind: Service\nmetadata:\n  name: x\n")
+    for bad in ("kind: Service\nmetadata:\n  name: x\n---\nkind: Service\nmetadata:\n  name: y\n", "foo: 1\n"):
+        with pytest.raises(HTTPException):
+            _check_single("a.yaml|doc|0", bad)
+    _check_single("c.yml|svc|redis", "image: redis:7\n")
+    for bad in ("- just a list\n", "image: redis:7\nrabbitmq:\n  image: rabbitmq:3\n"):
+        with pytest.raises(HTTPException):
+            _check_single("c.yml|svc|redis", bad)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { api, type FileRev } from '../api'
+import { editorKeyDown } from '../editorKeys'
 import { Icon } from '../icons'
 import type { ServiceDetail } from '../types'
 import { Select } from './Select'
@@ -102,17 +103,7 @@ function YamlView({ serviceId, path, canEdit, onDirty, onClose }: {
   const revert = (rev: number) => run(() => api.revertFile(serviceId, rev, file!.sha), `${rev}번 버전으로 되돌렸습니다`)
 
   // 탭 키는 들여쓰기(공백 2칸), Ctrl/Cmd+S 는 저장
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab' && !e.shiftKey) {
-      e.preventDefault()
-      const el = e.currentTarget, { selectionStart: a, selectionEnd: b } = el
-      setText(text.slice(0, a) + '  ' + text.slice(b))
-      requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = a + 2 })
-    } else if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      if (dirty && !busy) void save()
-    }
-  }
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => editorKeyDown(e, setText, () => { if (dirty && !busy) void save() })
 
   if (error && !file) return <p className="text-[13px] text-fail">{error}</p>
   if (!file) return <p className="text-[13px] text-muted">불러오는 중…</p>

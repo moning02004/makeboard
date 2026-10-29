@@ -125,13 +125,33 @@ def _reindent(block: str, n: int) -> str:
     return "".join((" " * n + l) if l.strip() else l for l in _lines(_ensure_nl(block)))
 
 
-def replace_block(text: str, name: str, new: str | None) -> str:
+def block_body(text: str, name: str) -> tuple[str, int] | None:
+    """서비스 블록에서 이름 줄(redis:)을 뺀 내용과 그 들여쓰기. 한 줄에 쓴 블록(redis: {image: x})이면 None."""
+    blocks, _ = compose_blocks(text)
+    if name not in blocks:
+        return None
+    s, e = blocks[name]
+    lines = _lines(text)
+    after = lines[s].split(":", 1)[1].split("#", 1)[0].strip() if ":" in lines[s] else ""
+    if after:
+        return None
+    body = lines[s + 1:e]
+    indent = next((_indent(l) for l in body if not _blank_or_comment(l)), 0)
+    return (_dedent("".join(body), indent) if indent else "".join(body)), indent
+
+
+def replace_block(text: str, name: str, new_body: str | None) -> str:
+    """서비스 블록의 내용(이름 줄 아래)을 바꾸거나, None 이면 블록을 통째로 지운다. 이름 줄은 그대로 둔다."""
     blocks, child = compose_blocks(text)
     if name not in blocks:
         raise HTTPException(409, f"'{name}' 서비스를 파일에서 찾지 못했습니다. 다시 불러오세요")
     s, e = blocks[name]
     lines = _lines(text)
-    return "".join(lines[:s]) + (_reindent(new, child) if new is not None else "") + "".join(lines[e:])
+    if new_body is None:
+        return "".join(lines[:s] + lines[e:])
+    found = block_body(text, name)
+    indent = found[1] if found and found[1] > child else child + 2
+    return "".join(lines[:s + 1]) + _reindent(new_body, indent) + "".join(lines[e:])
 
 
 # ------------------------------------------------------------------ 분석
@@ -280,8 +300,9 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
         summary = [["image", str(svc["image"])]] if svc.get("image") else [["build", str(svc.get("build", "-"))]] if svc.get("build") else []
         if svc.get("ports"):
             summary.append(["ports", ", ".join(str(p) for p in svc["ports"])])
-        g.add(f"{path}|svc|{name}", "compose", str(name), file=path, editable=name in blocks, summary=summary,
-              text=_dedent("".join(lines[s:e]), child) if name in blocks else "", rank=0)
+        body = block_body(text, str(name))
+        g.add(f"{path}|svc|{name}", "compose", str(name), file=path, editable=body is not None, summary=summary,
+              text=body[0] if body else _dedent("".join(lines[s:e]), child), rank=0)
     vols: dict[str, list[str]] = {}
     for name, svc in services.items():
         svc = svc if isinstance(svc, dict) else {}
@@ -391,7 +412,27 @@ async def topology(service_id: int, user: str = Member) -> dict:
     texts, shas = await _sources(svc)
     graph = analyze(texts)
     attach_status(graph, svc.server_id, svc.name)
-    return {**graph, "files": shas}
+    return {**graph, "files": shas, "positions": (svc.layout or {}).get("topo") or {}}
+
+
+class PositionsIn(BaseModel):
+    positions: dict[str, dict[str, float]]  # '종류:이름' → {x, y}. 비우면 자동 배치
+
+
+@router.put("/positions")
+async def save_positions(service_id: int, body: PositionsIn, user: str = Member) -> dict:
+    from .db import SessionLocal
+    from .models import Service
+
+    pos = {k[:300]: {"x": round(float(v.get("x", 0))), "y": round(float(v.get("y", 0)))}
+           for k, v in list(body.positions.items())[:500] if isinstance(v, dict)}
+    async with SessionLocal() as s:
+        svc = await s.get(Service, service_id)
+        if not svc:
+            raise HTTPException(404, "서비스를 찾을 수 없습니다")
+        svc.layout = {**(svc.layout or {}), "topo": pos}
+        await s.commit()
+    return {"positions": pos}
 
 
 class NodeIn(BaseModel):
@@ -422,6 +463,25 @@ def _splice(current: str, nid: str, text: str | None) -> tuple[str, str]:
     raise HTTPException(422, "고칠 수 없는 노드입니다")
 
 
+def _check_single(nid: str, text: str) -> None:
+    """패널에서는 그 리소스 하나만 고친다. 다른 리소스를 덧붙이려면 '노드 추가'를 쓴다."""
+    part = nid.split("|")[1] if nid.count("|") >= 2 else ""
+    if part == "doc":
+        if any(SEP_RE.match(l.rstrip("\r\n")) for l in _lines(text)):
+            raise HTTPException(422, "리소스 하나만 쓸 수 있습니다 (---). 새 리소스는 '노드 추가'로 넣으세요")
+        obj = yaml.safe_load(text)
+        if not (isinstance(obj, dict) and obj.get("kind") and _get(obj, "metadata", "name")):
+            raise HTTPException(422, "kind 와 metadata.name 이 있어야 합니다")
+    elif part == "svc":
+        obj = yaml.safe_load(text)
+        if not isinstance(obj, dict):
+            raise HTTPException(422, "서비스 설정(image: … 같은 항목)을 써 주세요")
+        # redis 패널에 rabbitmq: { image: … } 를 써 넣는 경우: 서비스 안에 서비스가 생긴다
+        nested = [k for k, v in obj.items() if isinstance(v, dict) and ("image" in v or "build" in v)]
+        if nested:
+            raise HTTPException(422, f"'{nested[0]}' 은(는) 다른 서비스처럼 보입니다. 새 서비스는 '노드 추가'로 넣으세요")
+
+
 @router.put("/node")
 async def save_node(service_id: int, body: NodeIn, user: str = Editor) -> dict:
     """노드(리소스) 하나를 고치거나(text) 지운다(text 없음). 파일의 나머지는 그대로 둔다."""
@@ -430,8 +490,10 @@ async def save_node(service_id: int, body: NodeIn, user: str = Editor) -> dict:
     current = await files._read(svc, path)
     if sha(current) != body.sha:
         raise HTTPException(409, "파일이 그사이 바뀌었습니다. 다시 불러오세요")
-    if body.text is not None and files.yaml_error(body.text):
-        raise HTTPException(422, files.yaml_error(body.text))
+    if body.text is not None:
+        if files.yaml_error(body.text):
+            raise HTTPException(422, files.yaml_error(body.text))
+        _check_single(body.id, body.text)
     new, label = _splice(current, body.id, body.text)
     if files.yaml_error(current) is None and files.yaml_error(new):
         raise HTTPException(422, files.yaml_error(new))

@@ -14,7 +14,7 @@ export interface TopoNode {
 }
 // 선 종류: start 먼저 켜짐 → 나중, traffic 요청 흐름, ref 설정·볼륨 사용·가리킴
 export interface TopoEdge { from: string; to: string; label: string; kind: 'start' | 'traffic' | 'ref' }
-export interface Topology { nodes: TopoNode[]; edges: TopoEdge[]; errors: string[]; files: Record<string, string> }
+export interface Topology { nodes: TopoNode[]; edges: TopoEdge[]; positions: Record<string, { x: number; y: number }>; errors: string[]; files: Record<string, string> }
 export interface FileRev { id: number; sha: string; author: string; note: string; size?: number; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 
@@ -84,6 +84,7 @@ export const api = {
   revertFile: (id: number, rev: number, sha: string) => req<{ sha: string; changed: boolean }>('POST', `/api/services/${id}/files/revert`, { rev_id: rev, sha }),
   // 서비스 폴더의 compose·쿠버네티스 yaml 구성도
   topology: (id: number) => req<Topology>('GET', `/api/services/${id}/topology`),
+  saveTopoPositions: (id: number, positions: Record<string, { x: number; y: number }>) => req<{ positions: Record<string, { x: number; y: number }> }>('PUT', `/api/services/${id}/topology/positions`, { positions }),
   saveTopoNode: (id: number, nodeId: string, sha: string, text: string | null) => req<{ changed: boolean }>('PUT', `/api/services/${id}/topology/node`, { id: nodeId, sha, text }),
   // 환경변수: 목록은 키만, 값 보기·수정은 다시 인증(428 이면 reauth 후 다시)
   envList: (id: number) => req<{ files: EnvFile[]; can_edit: boolean; elevated_until: number }>('GET', `/api/services/${id}/env`),
