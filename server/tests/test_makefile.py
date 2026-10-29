@@ -1,10 +1,8 @@
-import os
 
-os.environ.setdefault("MAKEBOARD_ADMIN_TOKEN", "test-token-test-token")
 
-import pytest  # noqa: E402
+import pytest
 
-from app.makefile import ModelError, collect, parse_makefile, to_makefile, validate_model  # noqa: E402
+from app.makefile import ModelError, collect, parse_makefile, to_makefile, validate_model
 
 SAMPLE = """\
 COMPOSE := docker compose -f docker-compose.yaml

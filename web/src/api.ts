@@ -40,7 +40,8 @@ export const api = {
   deleteServer: (id: string, uninstall: boolean) => req<{ ok: boolean; agent: { result: 'removed' | 'manual' | 'unconfirmed' | 'offline' | 'kept'; message: string } }>('DELETE', `/api/servers/${encodeURIComponent(id)}?uninstall=${uninstall}`),
   templates: () => req<{ id: string; name: string; description: string; content: string }[]>('GET', '/api/templates'),
   initMakefile: (id: number, template: string) => req<ServiceDetail>('POST', `/api/services/${id}/init`, { template }),
-  serverMetrics: (id: string) => req<{ points: { t: number; cpu?: number; ram?: number; disk?: number; rx?: number; tx?: number }[] }>('GET', `/api/servers/${encodeURIComponent(id)}/metrics`),
-  serviceMetrics: (id: number) => req<{ points: { t: number; cpu?: number; mem?: number }[] }>('GET', `/api/services/${id}/metrics`),
+  // since: 이미 가진 마지막 점의 시각. 그 뒤의 점만 받는다
+  serverMetrics: (id: string, since = 0) => req<{ points: { t: number; cpu?: number; ram?: number; disk?: number; rx?: number; tx?: number }[] }>('GET', `/api/servers/${encodeURIComponent(id)}/metrics?since=${since}`),
+  serviceMetrics: (id: number, since = 0) => req<{ points: { t: number; cpu?: number; mem?: number }[] }>('GET', `/api/services/${id}/metrics?since=${since}`),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),
 }

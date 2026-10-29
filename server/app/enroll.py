@@ -83,7 +83,7 @@ async def agents_config(user: str = Admin) -> dict:
 class AgentIn(BaseModel):
     name: str
     environment: str = "prod"
-    scan: list[str] = Field(default_factory=lambda: ["/services"])
+    scan: list[str] = Field(default_factory=lambda: ["/home/ubuntu/services"])
     public_url: str
     # 레시피를 실행할 계정. 비우면 서비스 폴더 소유자, "root" 면 root
     run_as: str = ""
@@ -219,6 +219,6 @@ async def _uninstall_agent(agent_id: str) -> dict:
 
 
 @router.get("/api/servers/{agent_id}/metrics")
-async def server_metrics(agent_id: str, user: str = Admin) -> dict:
-    """서버 대시보드 차트용 최근 1시간 리소스 기록."""
-    return {"points": list(hub.history.get(agent_id, ()))}
+async def server_metrics(agent_id: str, since: float = 0, user: str = Admin) -> dict:
+    """서버 대시보드 차트용 최근 1시간 리소스 기록. since 를 주면 그 뒤의 점만 준다."""
+    return {"points": hub.points_since(hub.history.get(agent_id, ()), since)}

@@ -18,6 +18,14 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all 은 이미 있는 테이블에 나중에 추가한 인덱스를 만들지 않으므로 따로 확인해서 만든다
+        await conn.run_sync(_create_missing_indexes)
+
+
+def _create_missing_indexes(conn) -> None:
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(conn, checkfirst=True)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

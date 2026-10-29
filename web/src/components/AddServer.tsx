@@ -11,7 +11,7 @@ export function guessUrl(): string {
 
 export function AddServer({ servers, onClose }: { servers: ServerWithServices[]; onClose: () => void }) {
   const [name, setName] = useState('')
-  const [scan, setScan] = useState('/services')
+  const [scan, setScan] = useState('/home/ubuntu/services')
   const [runAs, setRunAs] = useState('')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -79,7 +79,7 @@ export function AddServer({ servers, onClose }: { servers: ServerWithServices[];
         <input className={`${inp} font-mono`} value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="off" spellCheck={false} placeholder="server-105" />
       </label>
       <label className="flex flex-col gap-1.5 text-[12px] text-muted">서비스 폴더 <span className="text-faint">여러 개는 쉼표로 구분</span>
-        <input className={`${inp} font-mono`} value={scan} onChange={(e) => setScan(e.target.value)} autoComplete="off" spellCheck={false} placeholder="/services" />
+        <input className={`${inp} font-mono`} value={scan} onChange={(e) => setScan(e.target.value)} autoComplete="off" spellCheck={false} placeholder="/home/ubuntu/services" />
       </label>
       <label className="flex flex-col gap-1.5 text-[12px] text-muted">실행 계정 <span className="text-faint">레시피가 이 계정 권한으로 실행되고, 만드는 파일도 이 계정 소유가 됩니다</span>
         <input className={`${inp} font-mono`} value={runAs} onChange={(e) => setRunAs(e.target.value)} autoComplete="off" spellCheck={false} placeholder="비우면 서비스 폴더의 소유자 (root 로 돌리려면 root)" />

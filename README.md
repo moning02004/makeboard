@@ -53,15 +53,15 @@ docker compose up -d --build
 
 에이전트는 Docker로만 설치합니다. 대상 서버에는 Docker만 있으면 됩니다.
 
-1. 웹의 **+ 서버 추가**에서 서버 이름과 서비스 폴더(기본 `/services`), 실행 계정을 입력합니다.
+1. 웹의 **+ 서버 추가**에서 서버 이름과 서비스 폴더(기본 `/home/ubuntu/services`), 실행 계정을 입력합니다.
 2. 만들어진 명령어 한 줄을 대상 서버의 터미널에 붙여넣습니다.
 
 ```bash
 docker build -t makeboard-agent http://<중앙서버>:8000/agent/docker.tar.gz && \
 { docker rm -f makeboard-agent; docker run -d --name makeboard-agent --restart unless-stopped --network host \
-    --user ... --group-add ... -v /var/run/docker.sock:/var/run/docker.sock -v /services:/services \
+    --user ... --group-add ... -v /var/run/docker.sock:/var/run/docker.sock -v /home/ubuntu/services:/home/ubuntu/services \
     -e MAKEBOARD_SERVER=ws://<중앙서버>:8000/ws/agent -e MAKEBOARD_AGENT_ID=... -e MAKEBOARD_AGENT_TOKEN=... \
-    -e MAKEBOARD_SCAN=/services makeboard-agent; }
+    -e MAKEBOARD_SCAN=/home/ubuntu/services makeboard-agent; }
 ```
 
 중앙 서버가 빌드 컨텍스트(`/agent/docker.tar.gz`)를 내려주므로 레지스트리나 저장소 복사가 필요 없습니다. 같은 명령어를 다시 실행하면 최신 에이전트로 바뀝니다.

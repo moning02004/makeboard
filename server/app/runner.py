@@ -17,8 +17,9 @@ from sqlalchemy import select, update
 from .config import settings
 from .db import SessionLocal
 from .hub import AgentOffline, Job, hub
-from .makefile import arg_str, collect, help_text, parse_makefile
+from .makefile import arg_str, collect, help_text
 from .models import Run, RunLog, RunStep, Service
+from .services import model_of
 
 log = logging.getLogger("makeboard.runner")
 FINISHED = {"ok", "failed", "stopped"}
@@ -46,7 +47,7 @@ async def start_run(service_id: int, target: str, vars_: dict[str, str], user: s
         svc = await s.get(Service, service_id)
         if not svc:
             raise RunError("서비스를 찾을 수 없습니다")
-        model = parse_makefile(svc.makefile)
+        model = model_of(svc.makefile, svc.makefile_sha)
         if target not in model["nodes"]:
             raise RunError(f"{target} 명령어가 Makefile에 없습니다. 다시 불러오세요")
         if not hub.online(svc.server_id):

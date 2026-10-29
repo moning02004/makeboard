@@ -123,6 +123,18 @@ class Hub:
             if usage:
                 self.svc_history[(agent_id, name)].append({"t": now, "cpu": usage.get("cpu"), "mem": usage.get("mem")})
 
+    @staticmethod
+    def points_since(points, since: float) -> list[dict[str, Any]]:
+        """차트 기록에서 since 보다 뒤의 점만. 화면이 이미 가진 점은 다시 보내지 않는다."""
+        if not since:
+            return list(points)
+        out = []
+        for p in reversed(points):  # 새 점은 끝에 있으므로 뒤에서부터 본다
+            if p["t"] <= since:
+                break
+            out.append(p)
+        return out[::-1]
+
     # ---- run events
     def next_seq(self, run_id: int) -> int:
         self.seq[run_id] += 1

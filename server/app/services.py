@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -24,6 +26,25 @@ def utcnow() -> datetime:
 
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+# Makefile 파싱 결과를 내용(sha)별로 기억한다. 서비스 상세·실행·저장이 같은 Makefile 을 매번 다시 파싱하지 않도록.
+# 돌려준 dict 는 여러 요청이 함께 쓰므로 고치지 말고 읽기만 한다.
+_models: OrderedDict[str, dict] = OrderedDict()
+MODEL_CACHE = 256
+
+
+def model_of(text: str, text_sha: str = "") -> dict:
+    key = text_sha or sha(text)
+    model = _models.get(key)
+    if model is None:
+        model = parse_makefile(text)
+        _models[key] = model
+        if len(_models) > MODEL_CACHE:
+            _models.popitem(last=False)
+    else:
+        _models.move_to_end(key)
+    return model
 
 
 async def upsert_agent(agent_id: str, hello: dict) -> list[str]:
@@ -85,13 +106,19 @@ async def sync_service(service_id: int) -> Service:
 
 
 async def sync_agent(agent_id: str, names: list[str]) -> None:
+    """접속한 에이전트의 Makefile 들을 받아온다. 에이전트는 요청을 동시에 처리하므로 몇 개씩 함께 보낸다."""
     async with SessionLocal() as s:
-        ids = [x.id for x in (await s.execute(select(Service).where(Service.server_id == agent_id, Service.name.in_(names)))).scalars()]
-    for sid in ids:
-        try:
-            await sync_service(sid)
-        except Exception as e:  # noqa: BLE001
-            log.warning("sync %s failed: %s", sid, e)
+        ids = (await s.execute(select(Service.id).where(Service.server_id == agent_id, Service.name.in_(names)))).scalars().all()
+    sem = asyncio.Semaphore(4)
+
+    async def one(sid: int) -> None:
+        async with sem:
+            try:
+                await sync_service(sid)
+            except Exception as e:  # noqa: BLE001
+                log.warning("sync %s failed: %s", sid, e)
+
+    await asyncio.gather(*(one(sid) for sid in ids))
 
 
 def service_status(svc: Service) -> dict | None:
@@ -100,7 +127,7 @@ def service_status(svc: Service) -> dict | None:
 
 
 def service_dict(svc: Service, srv: Server | None) -> dict:
-    model = parse_makefile(svc.makefile) if svc.makefile else None
+    model = model_of(svc.makefile, svc.makefile_sha) if svc.makefile else None
     return {
         "id": svc.id, "name": svc.name, "path": svc.path,
         "server": server_brief(srv) if srv else None,

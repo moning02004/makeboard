@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../api'
+import { usePoints } from '../usePoints'
 import { Icon } from '../icons'
 import type { ServerWithServices, ServiceItem } from '../types'
 import { Gauge, GaugeRow } from './Gauge'
@@ -32,18 +33,11 @@ function storageSet(k: string, v: string) { try { localStorage.setItem(k, v) } c
 
 // 서버를 누르면 가운데에 나오는 화면: 리소스 사용량과 서비스 목록
 export function ServerDashboard({ server, onOpen }: { server: ServerWithServices; onOpen: (id: number) => void }) {
-  const [points, setPoints] = useState<Point[]>([])
   const [onlyRunning, setOnlyRunning] = useState(() => storageGet('mb:onlyRunning') === '1')
   const m = server.metrics || {}
 
-  // 차트 기록은 이 화면이 열려 있고 탭이 보일 때만 5초마다 받는다
-  useEffect(() => {
-    let alive = true
-    const load = () => { if (!document.hidden) api.serverMetrics(server.id).then((r) => { if (alive) setPoints(r.points as Point[]) }).catch(() => {}) }
-    setPoints([]); load()
-    const t = window.setInterval(load, 5000)
-    return () => { alive = false; window.clearInterval(t) }
-  }, [server.id])
+  // 차트 기록은 이 화면이 열려 있고, 탭이 보이고, 서버가 연결돼 있을 때만 5초마다 받는다 (오프라인이면 차트를 그리지 않는다)
+  const points = usePoints(server.id, (since) => api.serverMetrics(server.id, since), 5000, server.online) as Point[]
 
   const toggle = () => setOnlyRunning((v) => { storageSet('mb:onlyRunning', v ? '0' : '1'); return !v })
   const isOff = (v: ServiceItem) => summarize(v.status)?.tone === 'off'

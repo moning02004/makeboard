@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -59,6 +59,8 @@ class Service(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+    # 서비스별 최근 실행 목록 (service_id = ? ORDER BY id DESC LIMIT n)
+    __table_args__ = (Index("ix_runs_service_id_id", "service_id", "id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"), index=True)
@@ -77,6 +79,8 @@ class RunStep(Base):
     """실행 안에서 노드(타깃) 하나의 상태."""
 
     __tablename__ = "run_steps"
+    # 단계 상태를 바꿀 때마다 (run_id, node) 로 찾는다
+    __table_args__ = (Index("ix_run_steps_run_id_node", "run_id", "node"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)
@@ -92,6 +96,8 @@ class RunStep(Base):
 
 class RunLog(Base):
     __tablename__ = "run_logs"
+    # 로그는 실행별로 seq 순서대로 읽는다
+    __table_args__ = (Index("ix_run_logs_run_id_seq", "run_id", "seq"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)

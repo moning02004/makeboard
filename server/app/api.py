@@ -15,7 +15,7 @@ from .auth import COOKIE, check_token, require_admin, session_value
 from .config import settings
 from .db import SessionLocal, get_session
 from .hub import AgentOffline, hub
-from .makefile import NAME_RE, VALUE_RE, VAR_RE, ModelError, parse_makefile, to_makefile, validate_model
+from .makefile import NAME_RE, VALUE_RE, VAR_RE, ModelError, to_makefile, validate_model
 from .templates import BY_ID as TEMPLATES_BY_ID, TEMPLATES
 from .models import AgentKey, Run, RunLog, RunStep, Server, Service, iso
 
@@ -50,38 +50,41 @@ async def me(user: str = Admin) -> dict:
 
 # ------------------------------------------------------------------ servers / services
 _counts: dict[str, int] = {}
+SERVICE_COLS = (Service.id, Service.server_id, Service.name, Service.path, Service.makefile_sha, Service.sync_error)
 
 
-def _node_count(sha: str, text: str) -> int:
-    """서버 목록은 5초마다 불리므로 Makefile 내용(sha)이 같으면 다시 파싱하지 않는다."""
-    if not text:
-        return 0
-    if sha not in _counts:
+async def _node_counts(s: AsyncSession, shas: set[str]) -> dict[str, int]:
+    """서버 목록은 5초마다 불리므로 Makefile 원문은 처음 보는 sha 일 때만 읽어서 노드 수를 센다."""
+    missing = {x for x in shas if x and x not in _counts}
+    if missing:
         if len(_counts) > 2000:
             _counts.clear()
-        _counts[sha] = len(parse_makefile(text)["order"])
-    return _counts[sha]
+        for sha_, text in (await s.execute(select(Service.makefile_sha, Service.makefile)
+                                           .where(Service.makefile_sha.in_(missing)).distinct())).all():
+            _counts[sha_] = len(services.model_of(text, sha_)["order"]) if text else 0
+    return {x: _counts.get(x, 0) for x in shas}
 
 
 @router.get("/servers")
 async def list_servers(user: str = Admin, s: AsyncSession = Depends(get_session)) -> list[dict]:
     servers = (await s.execute(select(Server).order_by(Server.environment.desc(), Server.id))).scalars().all()
-    svcs = (await s.execute(select(Service).order_by(Service.name))).scalars().all()
+    rows = (await s.execute(select(*SERVICE_COLS).order_by(Service.name))).all()
+    counts = await _node_counts(s, {r.makefile_sha for r in rows})
+    by_server: dict[str, list] = {}
+    for r in rows:
+        by_server.setdefault(r.server_id, []).append(r)
     out = []
     for srv in servers:
-        items = []
-        for v in svcs:
-            if v.server_id != srv.id:
-                continue
-            count = _node_count(v.makefile_sha, v.makefile)
-            items.append({"id": v.id, "name": v.name, "path": v.path, "node_count": count, "sync_error": v.sync_error,
-                          "status": services.service_status(v), "disk": (hub.disk.get(srv.id) or {}).get(v.name)})
+        status, disk = hub.status.get(srv.id) or {}, hub.disk.get(srv.id) or {}
+        items = [{"id": v.id, "name": v.name, "path": v.path, "node_count": counts.get(v.makefile_sha, 0),
+                  "sync_error": v.sync_error, "status": status.get(v.name), "disk": disk.get(v.name)}
+                 for v in by_server.get(srv.id, ())]
         out.append({**services.server_brief(srv), "services": items})
     # 웹에서 추가했지만 아직 한 번도 연결되지 않은 서버
     known = {srv.id for srv in servers}
-    for key in (await s.execute(select(AgentKey).order_by(AgentKey.agent_id))).scalars():
-        if key.agent_id not in known:
-            out.append({"id": key.agent_id, "hostname": "", "environment": "dev", "version": "", "online": False,
+    for key in (await s.execute(select(AgentKey.agent_id).order_by(AgentKey.agent_id))).scalars():
+        if key not in known:
+            out.append({"id": key, "hostname": "", "environment": "dev", "version": "", "online": False,
                         "metrics": None, "last_seen": None, "pending": True, "services": []})
     return out
 
@@ -101,10 +104,12 @@ async def get_service(service_id: int, user: str = Admin, s: AsyncSession = Depe
 
 
 @router.get("/services/{service_id}/metrics")
-async def service_metrics(service_id: int, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
-    """서비스 컨테이너들의 CPU·메모리 합계, 최근 1시간."""
-    svc, _ = await _load(s, service_id)
-    return {"points": list(hub.svc_history.get((svc.server_id, svc.name), ()))}
+async def service_metrics(service_id: int, since: float = 0, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+    """서비스 컨테이너들의 CPU·메모리 합계, 최근 1시간. since 를 주면 그 뒤의 점만 준다."""
+    row = (await s.execute(select(Service.server_id, Service.name).where(Service.id == service_id))).first()
+    if not row:
+        raise HTTPException(404, "서비스를 찾을 수 없습니다")
+    return {"points": hub.points_since(hub.svc_history.get((row.server_id, row.name), ()), since)}
 
 
 @router.post("/services/{service_id}/sync")
@@ -122,7 +127,7 @@ async def sync(service_id: int, user: str = Admin) -> dict:
 
 @router.get("/templates")
 async def list_templates(user: str = Admin) -> list[dict]:
-    return [{**t, "content": to_makefile(parse_makefile(t["content"]))} for t in TEMPLATES]
+    return [{**t, "content": to_makefile(services.model_of(t["content"]))} for t in TEMPLATES]
 
 
 class InitIn(BaseModel):
@@ -139,7 +144,7 @@ async def init_makefile(service_id: int, body: InitIn, user: str = Admin) -> dic
         svc, srv = await _load(s, service_id)
         if svc.makefile:
             raise HTTPException(409, "이미 Makefile이 있습니다")
-        text = to_makefile(parse_makefile(tpl["content"]))
+        text = to_makefile(services.model_of(tpl["content"]))
         try:
             reply = await hub.request(svc.server_id, {"type": "write_makefile", "project": svc.name,
                                                        "content": text, "expected_sha": services.sha("")})
@@ -165,7 +170,7 @@ async def save_model(service_id: int, body: ModelIn, user: str = Admin) -> dict:
     """노드 편집 결과를 Makefile로 만들어 에이전트에게 쓰게 한다."""
     async with SessionLocal() as s:
         svc, srv = await _load(s, service_id)
-        current = parse_makefile(svc.makefile)
+        current = services.model_of(svc.makefile, svc.makefile_sha)
         if current["readonly"]:
             raise HTTPException(409, current["readonly"])
         if body.sha != svc.makefile_sha:
@@ -272,6 +277,9 @@ async def stop(run_id: int, user: str = Admin) -> dict:
     return {"ok": True}
 
 
+LOG_TAIL = 5000  # web/src/useRunStream.ts 의 MAX_LINES 와 같게
+
+
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -289,12 +297,23 @@ async def run_events(run_id: int, request: Request, user: str = Admin) -> Stream
                     yield _sse({"type": "error", "error": "실행 기록을 찾을 수 없습니다"})
                     return
                 steps = (await s.execute(select(RunStep).where(RunStep.run_id == run_id).order_by(RunStep.id))).scalars().all()
-                logs = (await s.execute(select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.seq))).scalars().all()
+                # 화면은 최근 LOG_TAIL 줄만 남기므로 그만큼만 읽는다
+                logs = (await s.execute(select(RunLog).where(RunLog.run_id == run_id)
+                                        .order_by(RunLog.seq.desc()).limit(LOG_TAIL))).scalars().all()[::-1]
                 yield _sse({"type": "snapshot", "run": _run_dict(run, list(steps))})
                 last = 0
+                if logs and logs[0].seq > 1:
+                    yield _sse({"type": "log", "seq": logs[0].seq - 1, "ts": logs[0].ts, "node": "", "stream": "note",
+                                "line": f"앞의 로그 {logs[0].seq - 1}줄은 생략했습니다 (최근 {LOG_TAIL}줄만 보여줍니다)"})
+                chunk: list[str] = []
                 for r in logs:
                     last = r.seq
-                    yield _sse({"type": "log", "seq": r.seq, "ts": r.ts, "node": r.node, "stream": r.stream, "line": r.line})
+                    chunk.append(_sse({"type": "log", "seq": r.seq, "ts": r.ts, "node": r.node, "stream": r.stream, "line": r.line}))
+                    if len(chunk) >= 500:  # 한 줄씩 쓰지 않고 묶어서 보낸다
+                        yield "".join(chunk)
+                        chunk = []
+                if chunk:
+                    yield "".join(chunk)
                 if run.status in runner.FINISHED:
                     yield _sse({"type": "run", "status": run.status, "duration": run.duration})
                     return
