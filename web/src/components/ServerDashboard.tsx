@@ -57,9 +57,11 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
   })
   const pickSort = (k: SortKey) => { setSortBy(k); storageSet('mb:sort', k) }
   const withUsage = server.services.filter((v) => v.status?.usage)
-  const topCpu = Math.max(0.01, ...withUsage.map((v) => v.status!.usage!.cpu))
-  const topMem = Math.max(1, ...withUsage.map((v) => v.status!.usage!.mem))
-  const topDisk = Math.max(1, ...server.services.map((v) => v.disk ?? 0))
+  // 막대의 끝: CPU 는 서버 전체 대비 %로 최소 10%(가장 큰 값까지), 메모리는 서버 전체 메모리, 디스크는 가장 큰 폴더(최소 1GB)
+  // 값이 작은 서비스가 막대를 꽉 채워 보이지 않도록 한다 (차트 축과 같은 기준)
+  const topCpu = Math.max(10, ...withUsage.map((v) => v.status!.usage!.cpu))
+  const topMem = m.mem_total || Math.max(1, ...withUsage.map((v) => v.status!.usage!.mem))
+  const topDisk = Math.max(1024 ** 3, ...server.services.map((v) => v.disk ?? 0))
   const valueOf = (v: ServiceItem, k: SortKey) => (k === 'disk' ? v.disk : k === 'name' ? null : v.status?.usage?.[k]) ?? -1
   const sorted = [...shown].sort((a, b) => {
     if (sortBy !== 'name') {
@@ -168,7 +170,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
               })}
             </div>
           )}
-          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint">CPU는 서버 전체 대비입니다. 막대는 이 서버에서 가장 많이 쓰는 서비스를 기준으로 한 비교입니다. CPU·메모리는 15초, 디스크(서비스 폴더 크기)는 5분마다 갱신됩니다.</p>}
+          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint" title="막대: CPU 는 최소 10%까지, 메모리는 서버 전체 메모리 대비, 디스크(서비스 폴더 크기)는 가장 큰 폴더(최소 1GB) 기준. 디스크는 5분마다 갱신됩니다.">CPU·메모리는 서버 전체 대비 · 15초마다 갱신</p>}
         </section>
       </div>
     </div>
