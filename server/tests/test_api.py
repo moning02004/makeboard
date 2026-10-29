@@ -100,3 +100,71 @@ async def test_settings_and_beszel_link(client):
     assert (await client.get("/api/servers", headers=AUTH)).json()[0]["beszel_url"] is None
     r = await client.put("/api/settings", headers=AUTH, json={"beszel_url": None, "public_url": None})
     assert not r.json()["beszel_url"]["saved"] and not r.json()["public_url"]["saved"]
+
+
+async def test_users_login_and_roles(client):
+    from app.auth import ensure_admin
+
+    await ensure_admin()
+    # 처음 관리자: admin / 관리자 토큰
+    r = await client.post("/api/login", json={"username": "admin", "password": "test-token-test-token"})
+    assert r.status_code == 200
+    me = (await client.get("/api/me")).json()
+    assert me == {"user": "admin", "name": "관리자", "admin": True, "account": True}
+
+    # 관리자가 사용자 추가
+    r = await client.post("/api/users", json={"username": "kim", "password": "short", "admin": False})
+    assert r.status_code == 422
+    r = await client.post("/api/users", json={"username": "kim", "password": "kim-password", "admin": False})
+    kim = r.json()
+    assert r.status_code == 200 and kim["admin"] is False
+    assert (await client.post("/api/users", json={"username": "kim", "password": "kim-password"})).status_code == 409
+    admin_cookie = client.cookies.get("mb_session")
+
+    # 일반 사용자: 실행·조회는 되고, 관리 기능은 403. 실행 기록에는 아이디가 남는다
+    client.cookies.clear()
+    assert (await client.post("/api/login", json={"username": "kim", "password": "wrong-password"})).status_code == 401
+    assert (await client.post("/api/login", json={"username": "kim", "password": "kim-password"})).status_code == 200
+    assert (await client.get("/api/servers")).status_code == 200
+    assert (await client.get("/api/settings")).status_code == 403
+    assert (await client.get("/api/users")).status_code == 403
+    assert (await client.post("/api/agents", json={"name": "x", "public_url": "http://a:1"})).status_code == 403
+    assert (await client.delete(f"/api/users/{kim['id']}")).status_code == 403
+
+    # 자기 비밀번호 변경
+    r = await client.put("/api/me/password", json={"current": "kim-password", "new": "kim-password-2"})
+    assert r.status_code == 200
+    assert (await client.get("/api/me")).json()["user"] == "kim"
+
+    # 관리자가 비밀번호를 재설정하면 kim 의 기존 세션은 끊긴다
+    kim_cookie = client.cookies.get("mb_session")
+    client.cookies.clear()
+    client.cookies.set("mb_session", admin_cookie)
+    assert (await client.put(f"/api/users/{kim['id']}", json={"password": "reset-password"})).status_code == 200
+    me_id = next(u["id"] for u in (await client.get("/api/users")).json() if u["username"] == "admin")
+    assert (await client.put(f"/api/users/{me_id}", json={"admin": False})).status_code == 409
+    assert (await client.delete(f"/api/users/{me_id}")).status_code == 409
+    client.cookies.clear()
+    client.cookies.set("mb_session", kim_cookie)
+    assert (await client.get("/api/me")).status_code == 401
+
+    # 지우면 로그인할 수 없다
+    client.cookies.clear()
+    client.cookies.set("mb_session", admin_cookie)
+    assert (await client.delete(f"/api/users/{kim['id']}")).status_code == 200
+    client.cookies.clear()
+    assert (await client.post("/api/login", json={"username": "kim", "password": "reset-password"})).status_code == 401
+    # CLI 관리자 토큰은 그대로 쓸 수 있다
+    assert (await client.get("/api/users", headers=AUTH)).status_code == 200
+
+
+async def test_reinstall_and_kubeconfig(client):
+    body = {"name": "srv-1", "public_url": "http://10.0.0.5:8000", "scan": ["/srv"]}
+    assert (await client.post("/api/agents", headers=AUTH, json=body)).status_code == 409
+    r = await client.post("/api/agents", headers=AUTH, json={**body, "replace": True, "kubeconfig": "/home/ubuntu/.kube/config"})
+    assert r.status_code == 200
+    cmd = r.json()["command"]
+    assert "-v /home/ubuntu/.kube/config:/etc/makeboard/kubeconfig:ro" in cmd and "KUBECONFIG=/etc/makeboard/kubeconfig" in cmd
+    r = await client.post("/api/agents", headers=AUTH, json={**body, "replace": True, "kubeconfig": "~/.kube/config"})
+    assert r.status_code == 422
+

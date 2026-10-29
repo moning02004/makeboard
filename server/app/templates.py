@@ -33,6 +33,69 @@ deploy: ## 최신 이미지로 다시 띄우기
 """,
     },
     {
+        "id": "k8s",
+        "name": "Kubernetes",
+        "description": "kubectl 로 이 폴더의 yaml 을 적용. 네임스페이스는 폴더 이름",
+        "content": """# 네임스페이스. 비우면 폴더 이름을 쓰고, Makeboard 도 이 네임스페이스의 파드 상태를 보여 준다
+NAMESPACE ?= $(notdir $(CURDIR))
+APP ?=
+
+##@ 배포
+ns: ## 네임스페이스 만들기 (이미 있으면 그대로)
+\tkubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+apply: ## 이 폴더의 yaml 적용
+\tkubectl -n $(NAMESPACE) apply -f .
+restart: ## 디플로이먼트 다시 시작 (APP=이름)
+\tkubectl -n $(NAMESPACE) rollout restart deployment/$(APP)
+delete: ## 이 폴더의 리소스 삭제
+\tkubectl -n $(NAMESPACE) delete -f .
+deploy: ## 네임스페이스를 만들고 적용
+\t$(MAKE) ns
+\t$(MAKE) apply
+
+##@ 확인
+pods: ## 파드 상태
+\tkubectl -n $(NAMESPACE) get pods -o wide
+top: ## 파드 CPU·메모리
+\tkubectl -n $(NAMESPACE) top pods
+logs: ## 최근 로그 200줄 (APP=이름)
+\tkubectl -n $(NAMESPACE) logs deployment/$(APP) --tail=200
+""",
+    },
+    {
+        "id": "docker",
+        "name": "Docker",
+        "description": "compose 없이 docker run 으로 띄우는 컨테이너 하나",
+        "content": """NAME ?= $(notdir $(CURDIR))
+IMAGE ?=
+PORT ?= 8080:80
+
+##@ 실행
+run: ## 컨테이너 만들고 시작
+\tdocker run -d --name $(NAME) --restart unless-stopped -p $(PORT) $(IMAGE)
+stop: ## 중지
+\tdocker stop $(NAME)
+start: ## 다시 시작
+\tdocker start $(NAME)
+rm: ## 컨테이너 삭제
+\tdocker rm -f $(NAME)
+
+##@ 확인
+ps: ## 상태 보기
+\tdocker ps -a --filter name=$(NAME)
+logs: ## 최근 로그 200줄
+\tdocker logs --tail=200 $(NAME)
+
+##@ 배포
+pull: ## 최신 이미지 받기
+\tdocker pull $(IMAGE)
+deploy: ## 최신 이미지로 다시 만들기
+\t$(MAKE) pull
+\t$(MAKE) rm
+\t$(MAKE) run
+""",
+    },
+    {
         "id": "basic",
         "name": "기본",
         "description": "예시 명령어 하나. 웹에서 노드를 추가해 채워 나갑니다",

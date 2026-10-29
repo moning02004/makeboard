@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from . import prefs
-from .auth import require_admin
+from .auth import require_admin, require_user
 from .config import settings
 from .db import SessionLocal
 from .hub import AgentOffline, hub
@@ -31,6 +31,7 @@ from .models import AgentKey, Run, RunLog, RunStep, Server, Service
 
 router = APIRouter()
 Admin = Depends(require_admin)
+Member = Depends(require_user)
 
 AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 SCAN_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
@@ -88,6 +89,10 @@ class AgentIn(BaseModel):
     public_url: str
     # 레시피를 실행할 계정. 비우면 서비스 폴더 소유자, "root" 면 root
     run_as: str = ""
+    # 쿠버네티스를 쓰는 서버면 그 호스트의 kubeconfig 경로 (예: /home/ubuntu/.kube/config). 비우면 붙이지 않는다
+    kubeconfig: str = ""
+    # 이미 있는 서버를 다시 설치(에이전트 업데이트·옵션 변경). 토큰을 새로 만들고 이전 명령어는 무효가 된다
+    replace: bool = False
 
 
 @router.post("/api/agents")
@@ -106,6 +111,9 @@ async def create_agent(body: AgentIn, user: str = Admin) -> dict:
     run_as = body.run_as.strip()
     if run_as and not USER_RE.match(run_as):
         raise HTTPException(422, "실행 계정은 리눅스 사용자 이름 형식으로 입력하세요 (예: deploy)")
+    kubeconfig = body.kubeconfig.strip()
+    if kubeconfig and (not SCAN_RE.match(kubeconfig) or kubeconfig.endswith("/")):
+        raise HTTPException(422, "kubeconfig 는 /로 시작하는 파일 경로로 입력하세요 (예: /home/ubuntu/.kube/config)")
     url = body.public_url.strip().rstrip("/")
     if not URL_RE.match(url):
         raise HTTPException(422, "서버 주소는 http://IP:포트 형식으로 입력하세요")
@@ -114,8 +122,8 @@ async def create_agent(body: AgentIn, user: str = Admin) -> dict:
 
     token = secrets.token_hex(32)
     async with SessionLocal() as s:
-        if await s.get(Server, name):
-            raise HTTPException(409, f"'{name}' 이름의 서버가 이미 있습니다. 다시 설치하려면 먼저 삭제하세요")
+        if await s.get(Server, name) and not body.replace:
+            raise HTTPException(409, f"'{name}' 이름의 서버가 이미 있습니다. 업데이트하려면 그 서버의 '다시 설치'를 쓰세요")
         key = await s.get(AgentKey, name)
         if key:
             # 한 번도 연결된 적 없는 이름이면 새 토큰으로 바꿔 준다 (이전 명령어는 무효)
@@ -124,14 +132,15 @@ async def create_agent(body: AgentIn, user: str = Admin) -> dict:
             s.add(AgentKey(agent_id=name, token_sha=token_sha(token)))
         await s.commit()
 
-    return {"agent_id": name, "command": docker_command(url, name, token, body.environment, scan, run_as)}
+    return {"agent_id": name, "command": docker_command(url, name, token, body.environment, scan, run_as, kubeconfig)}
 
 
 def ws_url(url: str) -> str:
     return ("wss://" + url[8:] if url.startswith("https://") else "ws://" + url[7:]) + "/ws/agent"
 
 
-def docker_command(url: str, name: str, token: str, environment: str, scan: list[str], run_as: str = "") -> str:
+def docker_command(url: str, name: str, token: str, environment: str, scan: list[str], run_as: str = "",
+                   kubeconfig: str = "") -> str:
     """호스트에 설치하지 않고 컨테이너로 띄우는 명령어. 다시 실행하면 최신 에이전트로 바뀐다.
 
     서비스 폴더는 호스트와 같은 경로로 마운트해야 레시피의 docker compose 가 쓰는 상대 경로가
@@ -140,6 +149,8 @@ def docker_command(url: str, name: str, token: str, environment: str, scan: list
     실행 계정: 비우면 첫 서비스 폴더의 소유자, 이름을 주면 그 계정의 UID/GID 로 띄운다.
     root 가 아니면 docker 소켓의 그룹을 더해 주고, 계정 이름이 보이도록 passwd/group 을 읽기 전용으로 붙인다.
     --network host: 네트워크 사용량과 호스트 이름이 컨테이너가 아니라 호스트 기준으로 잡히게 한다.
+    kubeconfig: 읽기 전용으로 붙여 레시피의 kubectl 이 호스트의 클러스터(k3s 의 127.0.0.1:6443 등)에 닿게 한다.
+    실행 계정이 그 파일을 읽을 수 있어야 한다.
     """
     q = shlex.quote
     if run_as == "root":
@@ -154,6 +165,8 @@ def docker_command(url: str, name: str, token: str, environment: str, scan: list
         *[f"-v {q(p)}:{q(p)}" for p in scan],
         f"-e MAKEBOARD_SERVER={q(ws_url(url))}", f"-e MAKEBOARD_AGENT_ID={q(name)}",
         f"-e MAKEBOARD_AGENT_TOKEN={q(token)}", f"-e MAKEBOARD_ENVIRONMENT={q(environment)}",
+        *([f"-v {q(kubeconfig)}:/etc/makeboard/kubeconfig:ro", "-e KUBECONFIG=/etc/makeboard/kubeconfig",
+           "-e KUBECACHEDIR=/tmp/.kube-cache"] if kubeconfig else []),
         f"-e MAKEBOARD_SCAN={q(':'.join(scan))}", f"-e MAKEBOARD_CONTAINER={CONTAINER}", CONTAINER,
     ]
     return (f"docker build -t {CONTAINER} {q(url + '/agent/docker.tar.gz')} && "
@@ -220,6 +233,6 @@ async def _uninstall_agent(agent_id: str) -> dict:
 
 
 @router.get("/api/servers/{agent_id}/metrics")
-async def server_metrics(agent_id: str, since: float = 0, user: str = Admin) -> dict:
+async def server_metrics(agent_id: str, since: float = 0, user: str = Member) -> dict:
     """서버 대시보드 차트용 최근 1시간 리소스 기록. since 를 주면 그 뒤의 점만 준다."""
     return {"points": hub.points_since(hub.history.get(agent_id, ()), since)}

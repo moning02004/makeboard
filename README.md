@@ -39,7 +39,15 @@ openssl rand -hex 32
 docker compose up -d --build
 ```
 
-`http://<서버>:8000` 에 접속해 `MAKEBOARD_ADMIN_TOKEN` 값으로 로그인합니다.
+`http://<서버>:8000` 에 접속해 아이디 `admin`, 비밀번호 `MAKEBOARD_ADMIN_TOKEN` 값으로 로그인합니다. 이 관리자 계정은 사용자가 한 명도 없을 때 처음 한 번 만들어지며, 아이디와 비밀번호는 `MAKEBOARD_ADMIN_USER`, `MAKEBOARD_ADMIN_PASSWORD`로 바꿀 수 있습니다. 로그인한 뒤 **설정 → 내 계정**에서 비밀번호를 바꾸세요.
+
+- **사용자**: 관리자가 **설정 → 사용자**에서 계정을 추가합니다. 일반 사용자는 서비스를 보고, 실행하고, Makefile을 편집할 수 있습니다. 서버 추가·삭제·다시 설치와 설정 변경은 관리자만 할 수 있습니다. 실행 기록에는 실행한 사람의 아이디가 남습니다.
+- **CLI**: `Authorization: Bearer <MAKEBOARD_ADMIN_TOKEN>` 헤더로 API를 관리자 권한으로 부를 수 있습니다.
+- **관리자 계정 만들기**: 명령어로도 만들 수 있습니다. 같은 아이디가 있으면 관리자로 바꾸고 비밀번호를 새로 정하므로, 비밀번호를 잊었을 때도 씁니다. `--password`를 빼면 입력을 받습니다.
+
+  ```bash
+  docker compose exec app python -m app.manage create_admin --username jeonghoon --name 유정훈
+  ```
 
 서버 상태를 [Beszel](https://beszel.dev)로 함께 본다면 웹 오른쪽 위의 **설정**에서 Beszel 주소를 넣으세요(`.env`의 `MAKEBOARD_BESZEL_URL`로도 됩니다). 서버 대시보드에 Beszel로 가는 버튼이 생깁니다. 주소의 `{name}`은 서버 이름으로 바뀝니다. 설정 창에서는 이 서버 주소(`MAKEBOARD_PUBLIC_URL`)도 바꿀 수 있고, 거기서 저장한 값이 `.env`보다 우선합니다.
 
@@ -66,10 +74,11 @@ docker build -t makeboard-agent http://<중앙서버>:8000/agent/docker.tar.gz &
     -e MAKEBOARD_SCAN=/home/ubuntu/services makeboard-agent; }
 ```
 
-중앙 서버가 빌드 컨텍스트(`/agent/docker.tar.gz`)를 내려주므로 레지스트리나 저장소 복사가 필요 없습니다. 같은 명령어를 다시 실행하면 최신 에이전트로 바뀝니다.
+중앙 서버가 빌드 컨텍스트(`/agent/docker.tar.gz`)를 내려주므로 레지스트리나 저장소 복사가 필요 없습니다. 같은 명령어를 다시 실행하면 최신 에이전트로 바뀝니다. 명령어를 잃어버렸거나 옵션을 바꾸려면 서버 대시보드의 **다시 설치**로 새 명령어를 만드세요(이전 토큰은 무효가 됩니다).
 
 - **서비스**: 서비스 폴더 바로 아래 폴더는 모두 서비스가 됩니다. Makefile이 없으면 웹에서 템플릿으로 만들 수 있고, 새 폴더를 만들면 30초 안에 나타납니다.
-- **실행 환경**: 레시피는 컨테이너 안에서 실행됩니다. 이미지에는 `make`, `git`, `curl`, `ssh`, `docker`, `docker compose`가 들어 있고, `docker` 명령은 마운트한 소켓으로 그 서버의 Docker를 씁니다. `kubectl` 같은 다른 도구가 필요하면 `agent/Dockerfile`에 추가하세요.
+- **실행 환경**: 레시피는 컨테이너 안에서 실행됩니다. 이미지에는 `make`, `git`, `curl`, `ssh`, `docker`, `docker compose`, `kubectl`이 들어 있고, `docker` 명령은 마운트한 소켓으로 그 서버의 Docker를 씁니다. 다른 도구가 필요하면 `agent/Dockerfile`에 추가하세요.
+- **쿠버네티스(k3s 등)**: 설치 화면의 **kubeconfig**에 그 서버의 kubeconfig 경로(예: `/home/ubuntu/.kube/config`)를 넣으면 컨테이너에 읽기 전용으로 붙어 레시피의 `kubectl`이 그 클러스터를 씁니다. 실행 계정이 읽을 수 있는 파일이어야 합니다(k3s의 `/etc/rancher/k3s/k3s.yaml`은 기본이 root 전용). 서비스 폴더 이름과 같은 네임스페이스(또는 Makefile의 `NAMESPACE`/`NS` 변수)의 파드 상태와 CPU·메모리(`kubectl top`, metrics-server 필요)를 화면에 보여줍니다.
 - **같은 경로 마운트**: 서비스 폴더는 호스트와 같은 경로로 마운트합니다. 그래야 `docker compose`의 상대 경로 볼륨이 호스트에서도 맞습니다.
 - **실행 계정**: 레시피는 "실행 계정"으로 실행되고 만드는 파일도 그 계정 소유가 됩니다. 비우면 첫 서비스 폴더의 소유자 UID/GID(`--user`)로 띄우고, docker 소켓의 그룹(`--group-add`)을 더합니다. `root`를 넣으면 root로 돕니다. docker 소켓을 쓸 수 있으면 사실상 호스트 root 권한이라는 점에 유의하세요.
 - **호스트 네트워크**: `--network host`로 띄워서 호스트 이름과 리소스 값이 컨테이너가 아니라 그 서버 기준으로 잡힙니다.
@@ -101,7 +110,7 @@ pip install -r agent/requirements.txt
 python3 agent/makeboard_agent.py -c agent/agent.dev.toml -v
 ```
 
-웹에서 `dev-admin-token-please-change`로 로그인하면 `dev-local / demo`가 보입니다. 테스트는 `cd server && pytest`로 돌립니다.
+웹에서 아이디 `admin`, 비밀번호 `dev-admin-token-please-change`로 로그인하면 `dev-local / demo`가 보입니다. 테스트는 `cd server && pytest`로 돌립니다.
 
 ---
 
@@ -158,13 +167,14 @@ backfill-rename-users: ## 사용자 이름 형식 변경   ← 프리셋 (인자
 
 - **에이전트 연결**: 에이전트는 서버별 토큰으로 인증합니다. 등록된 프로젝트 디렉터리, 올바른 타깃 이름, 허용된 문자의 인자만 실행합니다.
 - **인자 값 제한**: 인자 값은 레시피 안에서 셸로 펼쳐지기 때문에 영문, 숫자, `_ . , : / @ + = % -`만 허용합니다. 서버와 에이전트가 모두 검사합니다.
-- **편집 권한**: 웹에서 Makefile을 편집할 수 있다는 것은 그 서버에서 명령을 실행할 수 있다는 뜻입니다. 관리자 토큰은 실행 권한과 같다고 생각하세요.
+- **편집 권한**: 웹에서 Makefile을 편집할 수 있다는 것은 그 서버에서 명령을 실행할 수 있다는 뜻입니다. 일반 사용자 계정도 실행 권한과 같다고 생각하고 꼭 필요한 사람에게만 만드세요.
+- **로그인 보호**: 비밀번호는 scrypt로 저장합니다. 같은 IP에서 10분 동안 5번 틀리면 잠시 로그인을 막습니다.
 - **최소 권한**: 서버 추가 화면의 "실행 계정"으로 root가 아닌 전용 계정을 지정하세요. docker 소켓을 쓸 수 있으면 사실상 root와 같다는 점에 유의하세요.
 - **접근 제한**: 웹과 `/ws/agent`는 HTTPS 뒤, 가능하면 사내망이나 VPN 안에 두세요.
 
 ## 다음 단계로 고려할 것
 
-- 사용자 계정과 서버별 권한, 운영 실행에 대한 다른 사람 승인 (현재는 관리자 토큰 1개)
+- 서버별 권한, 운영 실행에 대한 다른 사람 승인
 - SSO(OIDC) 로그인
 - Redis pub/sub로 서버 다중 워커
 - 웹에서 저장한 Makefile을 git 커밋/PR로 남기기

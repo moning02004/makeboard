@@ -30,7 +30,7 @@ import psutil
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
@@ -40,6 +40,8 @@ MAX_MAKEFILE = 1024 * 1024
 MAKEFILE_NAMES = ("GNUmakefile", "makefile", "Makefile")
 COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
 STATUS_SECONDS = 15
+K8S_RETRY_SECONDS = 300  # 클러스터에 닿지 않으면 이만큼 쉬었다가 다시 본다
+NAMESPACE_RE = re.compile(r"^\s*(?:NAMESPACE|NS)\s*[:?]?=\s*([a-z0-9]([-a-z0-9]*[a-z0-9])?)\s*$", re.M)
 DISK_SECONDS = 300  # 서비스 폴더 크기(du)는 오래 걸릴 수 있어 5분마다
 
 
@@ -158,6 +160,29 @@ def cpu_info() -> dict:
     return info
 
 
+def parse_cpu(s: str) -> float | None:
+    """kubectl top 의 CPU: '250m' 또는 '1' (코어) -> 밀리코어"""
+    try:
+        return float(s[:-1]) if s.endswith("m") else float(s) * 1000
+    except ValueError:
+        return None
+
+
+def parse_bytes(s: str) -> int | None:
+    """kubectl top 의 메모리: '45Mi', '1Gi', '512Ki' -> 바이트"""
+    units = {"Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30, "Ti": 1 << 40, "K": 1000, "M": 1000**2, "G": 1000**3}
+    for u, mul in units.items():
+        if s.endswith(u):
+            try:
+                return int(float(s[: -len(u)]) * mul)
+            except ValueError:
+                return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -172,6 +197,7 @@ class Agent:
         self.sem = asyncio.Semaphore(cfg.max_jobs)
         self.reconnect_now = False
         self.status_kick = asyncio.Event()
+        self.k8s_retry_at = 0.0
 
     async def send(self, msg: dict) -> None:
         ws = self.ws
@@ -279,6 +305,73 @@ class Agent:
              "health": str(r.get("Health", "")), "status": str(r.get("Status", ""))}
             for r in rows if isinstance(r, dict)]}
 
+    # ---- 서비스 상태 (kubernetes)
+    @staticmethod
+    def namespace_of(name: str, base: Path) -> str:
+        """서비스의 네임스페이스. Makefile 의 NAMESPACE(또는 NS) 변수가 있으면 그것, 없으면 폴더 이름."""
+        try:
+            m = NAMESPACE_RE.search((base / "Makefile").read_text(errors="replace"))
+        except OSError:
+            m = None
+        return m[1] if m else name.lower().replace("_", "-").replace(".", "-")
+
+    async def _kubectl(self, *args: str, timeout: float = 15) -> str | None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "kubectl", *args, "--request-timeout=8s",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+        except (FileNotFoundError, asyncio.TimeoutError):
+            return None
+        return out.decode(errors="replace") if proc.returncode == 0 else None
+
+    async def k8s_pods(self) -> dict[str, list[dict]] | None:
+        """네임스페이스별 파드 상태와 사용량. kubectl 이 없거나 클러스터에 닿지 않으면 None (한동안 다시 묻지 않는다)."""
+        if not shutil.which("kubectl") or time.monotonic() < self.k8s_retry_at:
+            return None
+        text = await self._kubectl("get", "pods", "-A", "-o", "json")
+        try:
+            items = json.loads(text)["items"] if text else None
+        except (json.JSONDecodeError, KeyError, TypeError):
+            items = None
+        if items is None:
+            self.k8s_retry_at = time.monotonic() + K8S_RETRY_SECONDS
+            return None
+        by_ns: dict[str, list[dict]] = {}
+        for p in items:
+            meta, st = p.get("metadata") or {}, p.get("status") or {}
+            phase = str(st.get("phase") or "Unknown")
+            if phase == "Succeeded":  # 끝난 Job 파드는 빼고 센다
+                continue
+            cs = st.get("containerStatuses") or []
+            ready = sum(1 for c in cs if c.get("ready"))
+            restarts = sum(int(c.get("restartCount") or 0) for c in cs)
+            waiting = next((c["state"]["waiting"].get("reason", "") for c in cs if (c.get("state") or {}).get("waiting")), "")
+            state = "restarting" if waiting == "CrashLoopBackOff" else phase.lower()
+            if meta.get("deletionTimestamp"):
+                state = "exited"
+            text_ = waiting or phase
+            by_ns.setdefault(str(meta.get("namespace", "")), []).append({
+                "name": str(meta.get("name", "")), "service": str(meta.get("name", "")), "state": state,
+                "health": "unhealthy" if state == "running" and ready < len(cs) else "",
+                "status": f"{text_} · 준비 {ready}/{len(cs)}" + (f" · 재시작 {restarts}" if restarts else "")})
+        # 사용량은 metrics-server 가 있을 때만 (k3s 는 기본으로 있다)
+        top = await self._kubectl("top", "pods", "-A", "--no-headers")
+        if top:
+            cores = psutil.cpu_count() or 1
+            usage = {}
+            for line in top.splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    cpu, mem = parse_cpu(parts[2]), parse_bytes(parts[3])
+                    if cpu is not None and mem is not None:
+                        # 밀리코어 -> 서버 전체 대비 % (docker stats 와 같은 기준)
+                        usage[(parts[0], parts[1])] = {"cpu": round(cpu / 1000 / cores * 100, 2), "mem": mem}
+            for ns, pods in by_ns.items():
+                for pod in pods:
+                    pod.update(usage.get((ns, pod["name"]), {}))
+        return by_ns
+
     async def docker_usage(self) -> dict[str, dict]:
         """실행 중인 모든 컨테이너의 CPU·메모리를 한 번에 잰다 (docker stats 한 번).
 
@@ -332,19 +425,34 @@ class Agent:
             await asyncio.sleep(DISK_SECONDS)
 
     async def status_loop(self) -> None:
-        """compose 파일이 있는 프로젝트의 컨테이너 상태와 사용량을 보낸다. 바뀌었을 때와 1분마다."""
+        """서비스의 컨테이너(compose) 또는 파드(kubernetes) 상태와 사용량을 보낸다. 바뀌었을 때와 1분마다.
+
+        compose 파일이 있으면 compose, 없으면 폴더 이름(또는 Makefile 의 NAMESPACE)과 같은 네임스페이스의 파드를 본다.
+        """
         last: dict | None = None
         quiet = 0
         while True:
             report = {}
+            rest = {}
             for name, base in list(self.cfg.projects.items()):
                 st = await self.compose_status(base)
                 if st is not None:
                     report[name] = st
+                else:
+                    rest[name] = base
+            pods = await self.k8s_pods() if rest else None
+            for name, base in rest.items():
+                found = (pods or {}).get(self.namespace_of(name, base))
+                if found:
+                    st = {"kind": "k8s", "error": None, "containers": found}
+                    if any("cpu" in c for c in found):
+                        st["usage"] = {"cpu": round(sum(c.get("cpu", 0) for c in found), 2), "mem": sum(c.get("mem", 0) for c in found)}
+                    report[name] = st
+            compose = [st for st in report.values() if st["kind"] == "compose"]
             # 실행 중인 컨테이너가 있을 때만 사용량을 잰다
-            if any(c["state"] == "running" for st in report.values() for c in st["containers"]):
+            if any(c["state"] == "running" for st in compose for c in st["containers"]):
                 usage = await self.docker_usage()
-                for st in report.values():
+                for st in compose:
                     total_cpu, total_mem = 0.0, 0
                     for c in st["containers"]:
                         u = usage.get(c["name"])

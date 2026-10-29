@@ -1,5 +1,8 @@
 import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from './types'
 
+// account: 계정으로 로그인했는지 (false 면 CLI 관리자 토큰)
+export interface Me { user: string; name: string; admin: boolean; account: boolean }
+export interface UserInfo { id: number; username: string; name: string; admin: boolean; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 
 export class ApiError extends Error {
@@ -26,8 +29,13 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
-  me: () => req<{ user: string }>('GET', '/api/me'),
-  login: (token: string) => req<{ ok: boolean }>('POST', '/api/login', { token }),
+  me: () => req<Me>('GET', '/api/me'),
+  login: (username: string, password: string) => req<{ ok: boolean }>('POST', '/api/login', { username, password }),
+  changePassword: (current: string, next: string) => req<{ ok: boolean }>('PUT', '/api/me/password', { current, new: next }),
+  users: () => req<UserInfo[]>('GET', '/api/users'),
+  addUser: (username: string, password: string, name: string, admin: boolean) => req<UserInfo>('POST', '/api/users', { username, password, name, admin }),
+  updateUser: (id: number, patch: { password?: string; name?: string; admin?: boolean }) => req<UserInfo>('PUT', `/api/users/${id}`, patch),
+  deleteUser: (id: number) => req<{ ok: boolean }>('DELETE', `/api/users/${id}`),
   logout: () => req<{ ok: boolean }>('POST', '/api/logout'),
   servers: () => req<ServerWithServices[]>('GET', '/api/servers'),
   service: (id: number) => req<ServiceDetail>('GET', `/api/services/${id}`),
@@ -37,7 +45,7 @@ export const api = {
   run: (id: number, target: string, vars: Record<string, string>) => req<{ run_id: number }>('POST', `/api/services/${id}/runs`, { target, vars }),
   runs: (id: number) => req<RunInfo[]>('GET', `/api/services/${id}/runs?limit=20`),
   agentConfig: () => req<{ public_url: string }>('GET', '/api/agents/config'),
-  addAgent: (body: { name: string; environment: string; scan: string[]; public_url: string; run_as: string }) =>
+  addAgent: (body: { name: string; environment: string; scan: string[]; public_url: string; run_as: string; kubeconfig: string; replace: boolean }) =>
     req<{ agent_id: string; command: string }>('POST', '/api/agents', body),
   deleteServer: (id: string, uninstall: boolean) => req<{ ok: boolean; agent: { result: 'removed' | 'manual' | 'unconfirmed' | 'offline' | 'kept'; message: string } }>('DELETE', `/api/servers/${encodeURIComponent(id)}?uninstall=${uninstall}`),
   templates: () => req<{ id: string; name: string; description: string; content: string }[]>('GET', '/api/templates'),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, api } from './api'
+import { ApiError, api, type Me } from './api'
 import { CommandList, type ListHandle, type NodeState } from './components/CommandList'
 import { InitMakefile } from './components/InitMakefile'
 import { Login } from './components/Login'
@@ -39,17 +39,19 @@ const storage = {
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'out' | 'in'>('checking')
-  useEffect(() => { api.me().then(() => setAuth('in')).catch(() => setAuth('out')) }, [])
+  const [me, setMe] = useState<Me | null>(null)
+  const check = useCallback(() => { api.me().then((m) => { setMe(m); setAuth('in') }).catch(() => setAuth('out')) }, [])
+  useEffect(check, [check])
   if (auth === 'checking') return null
-  if (auth === 'out') return <Login onDone={() => setAuth('in')} />
-  return <Main onLogout={() => setAuth('out')} />
+  if (auth === 'out' || !me) return <Login onDone={check} />
+  return <Main me={me} onLogout={() => { setMe(null); setAuth('out') }} />
 }
 
 const STEP_TO_NODE: Partial<Record<StepStatus, NodeState>> = { queued: 'queued', running: 'running', ok: 'ok', failed: 'fail', stopped: 'stopped' }
 const RUN_TO_NODE: Record<RunStatus, NodeState> = { running: 'running', ok: 'ok', failed: 'fail', stopped: 'stopped' }
 const RUN_LABEL = { running: '실행 중', ok: '완료', failed: '실패', stopped: '중지됨' }
 
-function Main({ onLogout }: { onLogout: () => void }) {
+function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const toast = useToast()
   const [servers, setServers] = useState<ServerWithServices[]>([])
   const [svcId, setSvcId] = useState<number | null>(() => { const h = parseHash(); return h ? h.svc : isMobile() ? null : Number(storage.get('mb:svc')) || null })
@@ -73,7 +75,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const [pending, setPending] = useState<string | null>(null)
   const [runTarget, setRunTarget] = useState<{ id: number; target: string } | null>(null)
   const [editor, setEditor] = useState<EditorSeed | null>(null)
-  const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
+  const [modal, setModal] = useState<'source' | 'agent' | 'reinstall' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
   const list = useRef<ListHandle>(null)
 
@@ -234,7 +236,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="h-full flex bg-bg" style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}>
       <Sidebar servers={servers} current={curServerId} disabled={!!running} open={drawer} onClose={() => setDrawer(false)}
-        onPick={openServer} onHelp={() => { setDrawer(false); setModal('agent') }} onDelete={(s) => { setDrawer(false); setRemoving(s) }} />
+        onPick={openServer} onHelp={me.admin ? () => { setDrawer(false); setModal('agent') } : undefined}
+        onDelete={me.admin ? (s) => { setDrawer(false); setRemoving(s) } : undefined} />
 
       <main className="flex-1 min-w-0 flex flex-col h-full">
         <header className="h-14 lg:h-[68px] flex-none flex items-center gap-3 px-3 lg:pl-1 lg:pr-3.5 lg:pt-3.5 lg:pb-2">
@@ -281,16 +284,16 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('settings')} aria-label="설정" title="설정"
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="settings" size={16} /></button>
           <ThemeToggle />
-          <button type="button" onClick={() => api.logout().finally(onLogout)} aria-label="로그아웃" title="로그아웃"
+          <button type="button" onClick={() => api.logout().finally(onLogout)} aria-label={`로그아웃 (${me.name})`} title={`로그아웃 (${me.name} · ${me.user})`}
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="logout" size={16} /></button>
         </header>
 
         {svcId && detail && liveStatus && showUsage && <ServiceUsage serviceId={svcId} />}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
           {!svcId && !curServer && servers.length > 0 ? (
-            <ServerList servers={servers} onOpen={openServer} onAdd={() => setModal('agent')} />
+            <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
-            <ServerDashboard server={curServer} onOpen={openService} />
+            <ServerDashboard server={curServer} onOpen={openService} onReinstall={me.admin ? () => setModal('reinstall') : undefined} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
@@ -307,7 +310,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
                 </> : servers.length === 0 ? <>
                   <p className="text-[15px] font-medium">연결된 서버가 없습니다</p>
                   <p className="text-[13px] text-muted">관리할 서버에 에이전트를 설치하고 실행하면 서버와 서비스가 자동으로 나타납니다.</p>
-                  <button type="button" onClick={() => setModal('agent')} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">서버 추가</button>
+                  {me.admin && <button type="button" onClick={() => setModal('agent')} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">서버 추가</button>}
                 </> : <p className="text-[13px] text-muted">{loading ? '불러오는 중…' : '왼쪽에서 서버를 고르세요'}</p>}
               </div>
             </div>
@@ -338,9 +341,10 @@ function Main({ onLogout }: { onLogout: () => void }) {
       )}
       {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><SourceModal service={detail} onSync={sync} onClose={() => setModal(null)} /></Modal>}
       {modal === 'settings' && <Modal onClose={() => setModal(null)}>
-        <Settings onClose={() => setModal(null)} onError={fail} onSaved={() => { loadServers(); toast('설정을 저장했습니다') }} />
+        <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
       </Modal>}
       {modal === 'agent' && <Modal onClose={() => setModal(null)}><AddServer servers={servers} onClose={() => setModal(null)} /></Modal>}
+      {modal === 'reinstall' && curServer && <Modal onClose={() => setModal(null)}><AddServer servers={servers} reinstall={curServer} onClose={() => setModal(null)} /></Modal>}
       {removing && <Modal onClose={() => setRemoving(null)}><DeleteServer server={removing} onClose={() => setRemoving(null)} onDone={(message) => {
         if (removing.services.some((v) => v.id === svcId)) { setSvcId(null); setDetail(null) }
         if (removing.id === srvId) setSrvId(null)

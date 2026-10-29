@@ -18,8 +18,9 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
   current: string | null
   disabled: boolean
   onPick: (id: string) => void
-  onHelp: () => void
-  onDelete: (server: ServerWithServices) => void
+  // 관리자가 아니면 넘기지 않아 버튼을 숨긴다
+  onHelp?: () => void
+  onDelete?: (server: ServerWithServices) => void
 }) {
   const connected = servers.filter((s) => !s.pending)
   const pending = servers.filter((s) => s.pending)
@@ -37,11 +38,11 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
       <div className="flex-1 min-h-0 rounded-2xl bg-panel border border-line flex flex-col overflow-hidden">
       <div className="px-3 pt-3.5 pb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-faint px-2">서버</span>
-        <button type="button" onClick={onHelp} className="text-xs font-semibold text-accent bg-accentsoft hover:brightness-95 px-3 py-1.5 rounded-full">+ 서버 추가</button>
+        {onHelp && <button type="button" onClick={onHelp} className="text-xs font-semibold text-accent bg-accentsoft hover:brightness-95 px-3 py-1.5 rounded-full">+ 서버 추가</button>}
       </div>
       <nav className="flex-1 overflow-auto scroll-thin px-2.5 pb-3 flex flex-col gap-1" aria-label="서버">
         {connected.length === 0 && (
-          <p className="text-[13px] text-faint px-2 py-3 leading-relaxed">연결된 서버가 없습니다. 위의 '+ 서버 추가'로 설치 명령어를 만드세요.</p>
+          <p className="text-[13px] text-faint px-2 py-3 leading-relaxed">연결된 서버가 없습니다. {onHelp ? "위의 '+ 서버 추가'로 설치 명령어를 만드세요." : '관리자에게 서버 추가를 요청하세요.'}</p>
         )}
         {connected.map((s) => (
           <div key={s.id} className="relative group flex-none">
@@ -65,10 +66,10 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
                   : <span className="block text-[11px] text-faint mt-0.5">오프라인 · {ago(s.last_seen)}</span>}
               </span>
             </button>
-            <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 서버 삭제`} title="서버 삭제"
+            {onDelete && <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 서버 삭제`} title="서버 삭제"
               className="absolute right-1.5 top-1.5 w-7 h-7 grid place-items-center rounded-full text-faint hover:text-fail hover:bg-panel lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100">
               <Icon name="trash" size={14} />
-            </button>
+            </button>}
           </div>
         ))}
       </nav>
@@ -80,10 +81,10 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
               title="추가할 서버에서 설치 명령어를 실행하면 위로 옮겨집니다">
               <span className="w-2 h-2 rounded-full flex-none border border-faint" />
               <span className="flex-1 min-w-0 font-mono text-[12px] text-muted truncate">{s.id}</span>
-              <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 삭제`} title="삭제"
+              {onDelete && <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 삭제`} title="삭제"
                 className="w-6 h-6 grid place-items-center rounded-full text-faint hover:text-fail lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100">
                 <Icon name="trash" size={13} />
-              </button>
+              </button>}
             </div>
           ))}
         </section>

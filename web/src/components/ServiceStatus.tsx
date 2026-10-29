@@ -8,7 +8,7 @@ export function summarize(st: ServiceStatus | null | undefined): { tone: Tone; l
   if (!st) return null
   if (st.error) return { tone: 'err', label: '상태 확인 실패' }
   const total = st.containers.length
-  if (total === 0) return { tone: 'off', label: '컨테이너 없음' }
+  if (total === 0) return { tone: 'off', label: st.kind === 'k8s' ? '파드 없음' : '컨테이너 없음' }
   const running = st.containers.filter((c) => c.state === 'running').length
   const bad = st.containers.some((c) => c.health === 'unhealthy' || c.state === 'restarting' || c.state === 'dead')
   if (running === 0) return { tone: 'off', label: `중지됨 0/${total}` }
@@ -50,9 +50,9 @@ export function StatusChip({ status }: { status: ServiceStatus | null | undefine
       </button>
       {open && (
         <div className="absolute left-0 top-9 z-30 w-[340px] max-w-[calc(100vw-32px)] bg-panel border border-line rounded-xl shadow-xl p-2">
-          <p className="px-2 py-1 text-[11px] text-faint">docker compose ps · 15초마다 갱신</p>
+          <p className="px-2 py-1 text-[11px] text-faint">{status.kind === 'k8s' ? 'kubectl get pods' : 'docker compose ps'} · 15초마다 갱신</p>
           {status.error && <p className="px-2 py-1.5 text-[12px] text-fail break-words">{status.error}</p>}
-          {!status.error && status.containers.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted">만들어진 컨테이너가 없습니다. make up 으로 띄우세요.</p>}
+          {!status.error && status.containers.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted">{status.kind === 'k8s' ? '파드가 없습니다.' : '만들어진 컨테이너가 없습니다. make up 으로 띄우세요.'}</p>}
           {status.containers.map((c) => (
             <div key={c.name} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-hover">
               <span className={`w-2 h-2 rounded-full flex-none ${DOT[containerTone(c)]}`} />

@@ -9,10 +9,13 @@ export function guessUrl(): string {
   return location.port === '5173' ? `${location.protocol}//${location.hostname}:8000` : location.origin
 }
 
-export function AddServer({ servers, onClose }: { servers: ServerWithServices[]; onClose: () => void }) {
-  const [name, setName] = useState('')
-  const [scan, setScan] = useState('/home/ubuntu/services')
+/** 새 서버 추가. reinstall 을 주면 그 서버의 에이전트를 다시 설치하는 명령어를 만든다 (업데이트·옵션 변경). */
+export function AddServer({ servers, reinstall, onClose }: { servers: ServerWithServices[]; reinstall?: ServerWithServices; onClose: () => void }) {
+  const [name, setName] = useState(reinstall?.id ?? '')
+  // 다시 설치할 때는 에이전트가 보고한 첫 서비스 폴더를 기본값으로 쓴다
+  const [scan, setScan] = useState(reinstall?.metrics?.disk_path || '/home/ubuntu/services')
   const [runAs, setRunAs] = useState('')
+  const [kubeconfig, setKubeconfig] = useState('')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -28,7 +31,8 @@ export function AddServer({ servers, onClose }: { servers: ServerWithServices[];
     e.preventDefault()
     setBusy(true); setError('')
     try {
-      setResult(await api.addAgent({ name: name.trim(), environment: 'prod', run_as: runAs.trim(), public_url: url.trim(), scan: scan.split(',').map((s) => s.trim()).filter(Boolean) }))
+      setResult(await api.addAgent({ name: name.trim(), environment: reinstall?.environment || 'prod', run_as: runAs.trim(), public_url: url.trim(),
+        scan: scan.split(',').map((s) => s.trim()).filter(Boolean), kubeconfig: kubeconfig.trim(), replace: !!reinstall }))
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
 
@@ -54,7 +58,9 @@ export function AddServer({ servers, onClose }: { servers: ServerWithServices[];
         <p className="text-[12px] text-faint">토큰은 지금만 볼 수 있습니다. 필요하면 다른 이름으로 다시 추가하세요.</p>
         <div className="flex items-center gap-2.5 rounded-xl border border-line px-4 py-3 text-[13px]">
           <span className={`w-2 h-2 rounded-full flex-none ${online ? 'bg-ok' : 'bg-faint animate-pulse'}`} />
-          {online
+          {reinstall
+            ? <span className={online ? '' : 'text-muted'}><span className="font-mono">{result.agent_id}</span> {online ? '연결됨' : '다시 연결을 기다리는 중…'} · 현재 에이전트 {srv?.version || '-'}</span>
+            : online
             ? <span><span className="font-mono">{result.agent_id}</span> 연결됨 · 서비스 {srv?.services.length ?? 0}개</span>
             : <span className="text-muted"><span className="font-mono">{result.agent_id}</span> 연결을 기다리는 중…</span>}
         </div>
@@ -72,17 +78,22 @@ export function AddServer({ servers, onClose }: { servers: ServerWithServices[];
   return (
     <form onSubmit={submit} className="p-6 flex flex-col gap-4">
       <div>
-        <h3 id="mTitle" className="text-[17px] font-semibold">서버 추가</h3>
-        <p className="text-[13px] text-muted mt-1">설치 명령어 한 줄을 만들어 드립니다. 서비스 폴더 바로 아래 폴더는 모두 서비스가 됩니다. Makefile 이 없으면 웹에서 만들 수 있습니다.</p>
+        <h3 id="mTitle" className="text-[17px] font-semibold">{reinstall ? '에이전트 다시 설치' : '서버 추가'}</h3>
+        <p className="text-[13px] text-muted mt-1">{reinstall
+          ? <>새 설치 명령어를 만듭니다. <span className="font-mono">{reinstall.id}</span> 에서 실행하면 최신 에이전트로 바뀝니다. 이전 명령어의 토큰은 더 이상 쓸 수 없습니다.</>
+          : '설치 명령어 한 줄을 만들어 드립니다. 서비스 폴더 바로 아래 폴더는 모두 서비스가 됩니다. Makefile 이 없으면 웹에서 만들 수 있습니다.'}</p>
       </div>
-      <label className="flex flex-col gap-1.5 text-[12px] text-muted">서버 이름
+      {!reinstall && <label className="flex flex-col gap-1.5 text-[12px] text-muted">서버 이름
         <input className={`${inp} font-mono`} value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="off" spellCheck={false} placeholder="server-105" />
-      </label>
+      </label>}
       <label className="flex flex-col gap-1.5 text-[12px] text-muted">서비스 폴더 <span className="text-faint">여러 개는 쉼표로 구분</span>
         <input className={`${inp} font-mono`} value={scan} onChange={(e) => setScan(e.target.value)} autoComplete="off" spellCheck={false} placeholder="/home/ubuntu/services" />
       </label>
       <label className="flex flex-col gap-1.5 text-[12px] text-muted">실행 계정 <span className="text-faint">레시피가 이 계정 권한으로 실행되고, 만드는 파일도 이 계정 소유가 됩니다</span>
         <input className={`${inp} font-mono`} value={runAs} onChange={(e) => setRunAs(e.target.value)} autoComplete="off" spellCheck={false} placeholder="비우면 서비스 폴더의 소유자 (root 로 돌리려면 root)" />
+      </label>
+      <label className="flex flex-col gap-1.5 text-[12px] text-muted">kubeconfig <span className="text-faint">쿠버네티스(k3s 등)를 쓰는 서버만. 실행 계정이 읽을 수 있는 파일이어야 합니다</span>
+        <input className={`${inp} font-mono`} value={kubeconfig} onChange={(e) => setKubeconfig(e.target.value)} autoComplete="off" spellCheck={false} placeholder="비우면 연결하지 않음 (예: /home/ubuntu/.kube/config)" />
       </label>
       <label className="flex flex-col gap-1.5 text-[12px] text-muted">이 Makeboard 서버 주소 <span className="text-faint">추가할 서버에서 접속할 수 있는 주소</span>
         <input className={`${inp} font-mono`} value={url} onChange={(e) => setUrl(e.target.value)} autoComplete="off" spellCheck={false} placeholder="http://192.168.0.4:8000" />
