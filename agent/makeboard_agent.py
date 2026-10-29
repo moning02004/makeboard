@@ -30,7 +30,7 @@ import psutil
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
@@ -41,6 +41,10 @@ YAML_EXT = (".yaml", ".yml")
 MAX_FILE = 512 * 1024
 MAX_FILES = 200
 SKIP_DIRS = {"node_modules", "vendor", "__pycache__", "venv", ".venv"}
+# 환경변수 파일: .env, .env.production, app.env 등 (서비스 폴더 바로 아래만). 값은 키 하나씩만 내보낸다
+ENV_NAME_RE = re.compile(r"^(\.env(\.[A-Za-z0-9_.-]+)?|[A-Za-z0-9_.-]+\.env)$")
+ENV_LINE_RE = re.compile(r"^\s*(export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
+ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # GNU make 가 찾는 순서. 없으면 Makefile 로 새로 만든다.
 MAKEFILE_NAMES = ("GNUmakefile", "makefile", "Makefile")
 COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
@@ -531,6 +535,12 @@ class Agent:
                 await self.read_file(msg)
             elif kind == "write_file":
                 await self.write_file(msg)
+            elif kind == "env_list":
+                await self.env_list(msg)
+            elif kind == "env_get":
+                await self.env_get(msg)
+            elif kind == "env_set":
+                await self.env_set(msg)
         except Exception as e:  # noqa: BLE001
             log.exception("%s 처리 중 오류", kind)
             if msg.get("req_id"):
@@ -665,6 +675,105 @@ class Agent:
         os.replace(tmp, path)
         log.info("파일 저장: %s", path)
         await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "sha": sha256(content)})
+
+    # ---- 환경변수 파일 (.env)
+    def _env_file(self, project: str, name: str) -> Path:
+        base = self.cfg.projects.get(project)
+        if base is None:
+            raise ValueError(f"등록되지 않은 프로젝트입니다: {project}")
+        if not ENV_NAME_RE.match(name or ""):
+            raise ValueError(f"환경변수 파일이 아닙니다: {name}")
+        root = base.resolve()
+        path = (root / name).resolve()
+        if path.parent != root:
+            raise ValueError("서비스 폴더 밖의 파일입니다")
+        return path
+
+    @staticmethod
+    def _env_value(raw: str) -> str:
+        v = raw.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+            v = re.sub(r'\\(["\\])', r'\1', v[1:-1]) if v[0] == '"' else v[1:-1]
+        elif " #" in v:
+            v = v.split(" #", 1)[0].rstrip()  # 따옴표 없는 값 뒤의 주석
+        return v
+
+    async def env_list(self, msg: dict) -> None:
+        """키 이름만 보낸다. 값은 보내지 않는다."""
+        base = self.cfg.projects.get(str(msg.get("project")))
+        if base is None:
+            raise ValueError("등록되지 않은 프로젝트입니다")
+        out = []
+        for f in sorted(base.resolve().iterdir()) if base.is_dir() else []:
+            if f.is_file() and ENV_NAME_RE.match(f.name) and f.resolve().parent == base.resolve():
+                text = f.read_text(encoding="utf-8", errors="replace")
+                keys = []
+                for line in text.splitlines():
+                    m = ENV_LINE_RE.match(line)
+                    if m:
+                        keys.append({"key": m[2], "empty": not self._env_value(m[3])})
+                out.append({"path": f.name, "sha": sha256(text), "keys": keys})
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "files": out})
+
+    async def env_get(self, msg: dict) -> None:
+        path = self._env_file(str(msg.get("project")), str(msg.get("path")))
+        key = str(msg.get("key") or "")
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = ENV_LINE_RE.match(line)
+            if m and m[2] == key:
+                await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "value": self._env_value(m[3])})
+                return
+        raise ValueError(f"{key} 키가 없습니다")
+
+    async def env_set(self, msg: dict) -> None:
+        """키 하나를 바꾸거나(value) 더하거나 지운다(value 가 None). 다른 줄과 주석은 그대로 둔다."""
+        path = self._env_file(str(msg.get("project")), str(msg.get("path")))
+        key, value = str(msg.get("key") or ""), msg.get("value")
+        if not ENV_KEY_RE.match(key):
+            raise ValueError("키는 영문, 숫자, _ 로 쓰고 숫자로 시작할 수 없습니다")
+        if value is not None and ("\n" in str(value) or "\r" in str(value)):
+            raise ValueError("값에 줄바꿈을 넣을 수 없습니다")
+        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        if msg.get("expected_sha") and sha256(text) != msg["expected_sha"]:
+            await self.send({"type": "reply", "req_id": msg["req_id"], "ok": False,
+                             "error": "파일이 그사이 바뀌었습니다. 다시 불러오세요"})
+            return
+        if value is not None:
+            v = str(value)
+            needs_quote = v == "" or any(c in v for c in " #'\"$`\\")
+            # 따옴표가 필요하면 작은따옴표(그대로 읽힘, compose 가 $ 를 변수로 바꾸지 않음). 값에 ' 가 있으면 큰따옴표로 이스케이프
+            if not needs_quote or not v:
+                line_val = v
+            elif "'" not in v:
+                line_val = f"'{v}'"
+            else:
+                line_val = '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        lines, found = text.splitlines(keepends=True), False
+        out = []
+        for line in lines:
+            m = ENV_LINE_RE.match(line)
+            if m and m[2] == key and not found:
+                found = True
+                if value is not None:
+                    out.append(f"{m[1] or ''}{key}={line_val}\n")
+                continue
+            out.append(line)
+        if not found:
+            if value is None:
+                raise ValueError(f"{key} 키가 없습니다")
+            if out and not out[-1].endswith("\n"):
+                out[-1] += "\n"
+            out.append(f"{key}={line_val}\n")
+        new = "".join(out)
+        owner = path.stat() if path.exists() else path.parent.stat()
+        tmp = path.with_name(f".{path.name}.makeboard.tmp")
+        tmp.write_text(new, encoding="utf-8")
+        os.chmod(tmp, owner.st_mode & 0o777 if path.exists() else 0o600)
+        if os.geteuid() == 0:
+            os.chown(tmp, owner.st_uid, owner.st_gid)
+        os.replace(tmp, path)
+        log.info("환경변수 %s %s: %s", "삭제" if value is None else "저장", key, path)
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "sha": sha256(new)})
 
     # ---- jobs
     async def run_job(self, msg: dict) -> None:

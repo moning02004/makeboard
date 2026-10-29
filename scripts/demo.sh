@@ -119,6 +119,7 @@ cat <<EOF
   둘러볼 것
     · demo-local 서버 → shop: deploy 를 실행해 단계별 로그 보기, 오른쪽 위 '파일'에서 config.yaml 고치고 되돌리기
     · api: '구성'에서 쿠버네티스 구성도, 파드 상태와 CPU·메모리 (데모용 가짜 kubectl)
+    · shop: '환경변수'에서 .env 값 보기·수정 (한 번 더 인증, 설정 → 기록에 남음)
     · batch: check(병렬), slow(중지 버튼), broken(실패), backfill(인자 입력)
     · new-service: Makefile 이 없는 서비스 → 템플릿으로 만들기
     · 설정 → 사용자 / 내 계정: 권한과 2단계 인증 (데모는 2단계 인증이 선택)

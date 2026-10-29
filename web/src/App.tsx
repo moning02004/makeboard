@@ -17,6 +17,7 @@ import { ServiceUsage } from './components/ServiceUsage'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TopologyView } from './components/TopologyView'
+import { EnvModal } from './components/EnvModal'
 import { FilesModal } from './components/FilesModal'
 import { Icon } from './icons'
 import { deleteNode, upsertNode } from './model'
@@ -95,7 +96,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [pending, setPending] = useState<string | null>(null)
   const [runTarget, setRunTarget] = useState<{ id: number; target: string } | null>(null)
   const [editor, setEditor] = useState<EditorSeed | null>(null)
-  const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
+  const [modal, setModal] = useState<'source' | 'env' | 'agent' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
   const [editing, setEditing] = useState<ServerWithServices | null>(null)
   // 서비스 화면: Makefile 명령어 카드 또는 compose·쿠버네티스 구성도
@@ -310,6 +311,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
               className={`inline-flex flex-none whitespace-nowrap h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
           {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">파일</button>}
+          {detail && <button type="button" onClick={() => setModal('env')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg whitespace-nowrap [box-shadow:var(--card-shadow)]">환경변수</button>}
           {view === 'cmd' && model && !model.readonly && me.edit && (
             <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
               <Icon name="plus" size={14} sw={2.4} />노드 추가
@@ -378,6 +380,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </Modal>
       )}
       {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><FilesModal service={detail} canEdit={me.edit} onSync={sync} onClose={() => setModal(null)} /></Modal>}
+      {modal === 'env' && svcId && <Modal wide onClose={() => setModal(null)}><EnvModal serviceId={svcId} me={me} onClose={() => setModal(null)} /></Modal>}
       {modal === 'settings' && <Modal onClose={() => setModal(null)}>
         <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
       </Modal>}

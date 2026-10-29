@@ -83,7 +83,7 @@ def yaml_error(text: str) -> str | None:
     return None
 
 
-async def _service(service_id: int) -> tuple[Service, Server]:
+async def _service(service_id: int, min_agent: tuple[int, ...] = MIN_AGENT) -> tuple[Service, Server]:
     async with SessionLocal() as s:
         svc = await s.get(Service, service_id)
         if not svc:
@@ -91,8 +91,9 @@ async def _service(service_id: int) -> tuple[Service, Server]:
         srv = await s.get(Server, svc.server_id)
     if not hub.online(svc.server_id):
         raise HTTPException(409, "에이전트가 오프라인이라 파일을 볼 수 없습니다")
-    if _version(srv.version if srv else "") < MIN_AGENT:
-        raise HTTPException(409, f"에이전트 업데이트가 필요합니다 (지금 {srv.version if srv else '-'}, 0.4.0 이상). 서버 편집 → 저장으로 업데이트하세요")
+    if _version(srv.version if srv else "") < min_agent:
+        need = ".".join(map(str, min_agent))
+        raise HTTPException(409, f"에이전트 업데이트가 필요합니다 (지금 {srv.version if srv else '-'}, {need} 이상). 서버 편집 → 저장으로 업데이트하세요")
     return svc, srv
 
 

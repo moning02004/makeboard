@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -17,7 +18,7 @@ from .db import SessionLocal, get_session
 from .hub import AgentOffline, hub
 from .makefile import NAME_RE, VALUE_RE, VAR_RE, ModelError, to_makefile, validate_model
 from .templates import BY_ID as TEMPLATES_BY_ID, TEMPLATES
-from .models import AgentKey, Run, RunLog, RunStep, Server, Service, User, iso
+from .models import AgentKey, AuditLog, Run, RunLog, RunStep, Server, Service, User, iso
 
 router = APIRouter(prefix="/api")
 Member = Depends(require_user)  # 로그인한 사용자 누구나
@@ -87,6 +88,7 @@ async def login_otp(body: OtpLoginIn, request: Request, response: Response) -> d
 @router.post("/logout")
 async def logout(response: Response) -> dict:
     response.delete_cookie(COOKIE)
+    response.delete_cookie(auth.ELEVATED_COOKIE)
     return {"ok": True}
 
 
@@ -94,7 +96,8 @@ async def logout(response: Response) -> dict:
 async def me(request: Request) -> dict:
     u = await auth.current_user(request, allow_setup=True)
     return {"user": u.username, "name": u.name or u.username, "admin": u.is_admin, "edit": u.editor, "account": u.id is not None,
-            "otp": {"enabled": u.otp_enabled, "required": u.otp_required, "setup_required": u.otp_setup_required}}
+            "otp": {"enabled": u.otp_enabled, "required": u.otp_required, "setup_required": u.otp_setup_required},
+            "elevated_until": auth.elevated_until(request, u)}
 
 
 class PasswordIn(BaseModel):
@@ -122,6 +125,37 @@ async def change_my_password(body: PasswordIn, request: Request, response: Respo
         await s.commit()
         _set_session(response, u)
     return {"ok": True}
+
+
+class ReauthIn(BaseModel):
+    code: str = ""
+    password: str = ""
+
+
+@router.post("/me/reauth")
+async def reauth(body: ReauthIn, request: Request, response: Response) -> dict:
+    """민감한 동작(환경변수 보기·수정) 전에 다시 인증한다. 2단계 인증을 쓰면 코드, 아니면 비밀번호. 10분 유지."""
+    cur = await _my_account(request)
+    key = _client_key(request)
+    if not auth.login_allowed(key):
+        raise HTTPException(429, "실패가 많아 10분 동안 할 수 없습니다")
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        ok = auth.verify_second_factor(u, body.code) if u.totp_secret else auth.verify_password(body.password, u.password_hash)
+        if not ok:
+            auth.login_failed(key)
+            raise HTTPException(401, "인증 코드가 올바르지 않습니다" if u.totp_secret else "비밀번호가 올바르지 않습니다")
+        await s.commit()  # 쓴 코드 기록
+        response.set_cookie(auth.ELEVATED_COOKIE, auth.make_elevation(u), httponly=True, samesite="strict",
+                            secure=settings.cookie_secure, max_age=auth.ELEVATED_SECONDS)
+    await auth.audit(request, cur.username, "reauth", "")
+    return {"until": int(time.time()) + auth.ELEVATED_SECONDS}
+
+
+@router.get("/audit")
+async def audit_log(limit: int = 200, user: str = Admin, s: AsyncSession = Depends(get_session)) -> list[dict]:
+    rows = (await s.execute(select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 1000)))).scalars().all()
+    return [{"id": r.id, "at": iso(r.at), "user": r.user, "action": r.action, "target": r.target, "ip": r.ip} for r in rows]
 
 
 # ------------------------------------------------------------------ 2단계 인증 등록·해제

@@ -157,3 +157,16 @@ class FileRevision(Base):
     author: Mapped[str] = mapped_column(String(64), default="")
     note: Mapped[str] = mapped_column(String(128), default="")  # 원래 내용 | 저장 | N번으로 되돌림
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuditLog(Base):
+    """민감한 동작 기록 (환경변수 보기·수정 등). 값은 남기지 않는다."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    user: Mapped[str] = mapped_column(String(64), default="")
+    action: Mapped[str] = mapped_column(String(32), default="")  # env.reveal | env.set | env.delete | reauth
+    target: Mapped[str] = mapped_column(String(512), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")

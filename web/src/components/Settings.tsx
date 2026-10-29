@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, type Me, type Role, type SettingInfo, type UserInfo } from '../api'
+import { api, type AuditRow, type Me, type Role, type SettingInfo, type UserInfo } from '../api'
 import { OtpSetup, RecoveryCodes } from './OtpSetup'
 
 const inp = 'w-full h-10 px-3 rounded-xl bg-bg border border-line focus:border-accent outline-none text-[14px] text-fg font-mono'
 const btn = 'h-9 px-4 rounded-full text-[13px]'
 
-type Tab = 'general' | 'users' | 'account'
-const TAB_LABEL: Record<Tab, string> = { general: '일반', users: '사용자', account: '내 계정' }
+type Tab = 'general' | 'users' | 'audit' | 'account'
+const TAB_LABEL: Record<Tab, string> = { general: '일반', users: '사용자', audit: '기록', account: '내 계정' }
 
 /** 설정 창. 관리자: 일반·사용자·내 계정, 일반 사용자: 내 계정 */
 export function Settings({ me, onClose, onSaved, onError }: { me: Me; onClose: () => void; onSaved: (msg: string) => void; onError: (e: unknown) => void }) {
-  const tabs: Tab[] = [...(me.admin ? (['general', 'users'] as Tab[]) : []), ...(me.account ? (['account'] as Tab[]) : [])]
+  const tabs: Tab[] = [...(me.admin ? (['general', 'users', 'audit'] as Tab[]) : []), ...(me.account ? (['account'] as Tab[]) : [])]
   const [tab, setTab] = useState<Tab>(tabs[0] ?? 'account')
   return (
     <div className="p-6 flex flex-col gap-4">
@@ -27,6 +27,7 @@ export function Settings({ me, onClose, onSaved, onError }: { me: Me; onClose: (
       </div>
       {tab === 'general' && <General onClose={onClose} onSaved={() => onSaved('설정을 저장했습니다')} onError={onError} />}
       {tab === 'users' && <Users me={me} onError={onError} onSaved={onSaved} />}
+      {tab === 'audit' && <Audit onError={onError} />}
       {tab === 'account' && <Account me={me} onClose={onClose} onSaved={onSaved} />}
       {tabs.length === 0 && <p className="text-[13px] text-muted">관리자 토큰으로 접속 중이라 바꿀 수 있는 설정이 없습니다.</p>}
     </div>
@@ -195,6 +196,31 @@ function Users({ me, onError, onSaved }: { me: Me; onError: (e: unknown) => void
         </div>
       </form>
       {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ 기록 (관리자)
+const ACTION_LABEL: Record<string, string> = { 'env.reveal': '환경변수 보기', 'env.set': '환경변수 저장', 'env.delete': '환경변수 삭제', reauth: '다시 인증' }
+
+function Audit({ onError }: { onError: (e: unknown) => void }) {
+  const [rows, setRows] = useState<AuditRow[] | null>(null)
+  useEffect(() => { api.audit().then(setRows).catch(onError) }, [onError])
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[12px] text-faint">환경변수를 보거나 바꾼 기록입니다. 값은 남기지 않습니다.</p>
+      <ul className="rounded-xl border border-line divide-y divide-line max-h-[420px] overflow-auto scroll-thin text-[12px]">
+        {!rows && <li className="px-3.5 py-2.5 text-muted">불러오는 중…</li>}
+        {rows?.length === 0 && <li className="px-3.5 py-2.5 text-muted">기록이 없습니다</li>}
+        {rows?.map((r) => (
+          <li key={r.id} className="px-3.5 py-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <span className="text-faint tabular-nums">{r.at ? new Date(r.at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
+            <span><b className="font-semibold">{r.user}</b> · {ACTION_LABEL[r.action] ?? r.action}</span>
+            <span className="text-faint font-mono">{r.ip}</span>
+            <span className="font-mono text-muted break-all">{r.target}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

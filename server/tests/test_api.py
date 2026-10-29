@@ -218,3 +218,39 @@ async def test_reinstall_and_kubeconfig(client):
     assert "KUBECONFIG" not in r.json()["command"]
     assert (await client.get("/api/servers/srv-1/install", headers=AUTH)).json()["kubeconfig"] == ""
 
+
+
+async def test_env_requires_reauth(client):
+    from app.auth import hash_password
+    from app.models import User
+
+    async with SessionLocal() as s:
+        s.add(User(username="ed", password_hash=hash_password("ed-password"), can_edit=True))
+        s.add(User(username="runner", password_hash=hash_password("runner-password")))
+        await s.commit()
+    svc_id = (await client.get("/api/servers", headers=AUTH)).json()[0]["services"][0]["id"]
+    body = {"path": ".env", "key": "DB_URL"}
+
+    # 편집자 (테스트는 2단계 인증 강제를 끈다) : 다시 인증 전에는 428
+    from app.config import settings
+    settings.otp_required = False
+    try:
+        client.cookies.clear()
+        await client.post("/api/login", json={"username": "ed", "password": "ed-password"})
+        assert (await client.post(f"/api/services/{svc_id}/env/reveal", json=body)).status_code == 428
+        assert (await client.get("/api/me")).json()["elevated_until"] == 0
+        assert (await client.post("/api/me/reauth", json={"password": "wrong-password"})).status_code == 401
+        r = await client.post("/api/me/reauth", json={"password": "ed-password"})
+        assert r.status_code == 200 and (await client.get("/api/me")).json()["elevated_until"] > 0
+        # 인증은 통과하고, 에이전트가 없어서 409
+        assert (await client.post(f"/api/services/{svc_id}/env/reveal", json=body)).status_code == 409
+        # 실행 권한은 다시 인증해도 403
+        client.cookies.clear()
+        await client.post("/api/login", json={"username": "runner", "password": "runner-password"})
+        await client.post("/api/me/reauth", json={"password": "runner-password"})
+        assert (await client.post(f"/api/services/{svc_id}/env/reveal", json=body)).status_code == 403
+    finally:
+        settings.otp_required = True
+        client.cookies.clear()
+    log = (await client.get("/api/audit", headers=AUTH)).json()
+    assert [x["user"] for x in log if x["action"] == "reauth"][:2] == ["runner", "ed"]

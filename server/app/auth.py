@@ -27,6 +27,8 @@ from .models import User
 
 log = logging.getLogger("makeboard.auth")
 COOKIE = "mb_session"
+ELEVATED_COOKIE = "mb_elevated"  # 값 보기처럼 민감한 동작 전에 다시 인증한 표시 (10분)
+ELEVATED_SECONDS = 600
 SESSION_SECONDS = 60 * 60 * 24 * 14
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{2,32}$")
 MIN_PASSWORD = 8
@@ -40,6 +42,7 @@ class CurrentUser:
     name: str = ""
     can_edit: bool = False
     otp_enabled: bool = False
+    session_ver: int = 0
 
     @property
     def editor(self) -> bool:
@@ -189,6 +192,35 @@ def parse_ticket(value: str) -> tuple[int, int] | None:
         return None
 
 
+def make_elevation(user: User) -> str:
+    payload = f"elev.{user.id}.{user.session_ver}.{int(time.time()) + ELEVATED_SECONDS}"
+    return f"{payload}.{_sign(payload)}"
+
+
+def elevated_until(request: Request, cu: CurrentUser) -> int:
+    """다시 인증이 유효하면 끝나는 시각(epoch), 아니면 0. 관리자 토큰(CLI)은 늘 유효로 본다."""
+    if cu.id is None:
+        return int(time.time()) + ELEVATED_SECONDS
+    try:
+        kind, uid, ver, exp, sig = (request.cookies.get(ELEVATED_COOKIE) or "").split(".")
+        if kind == "elev" and hmac.compare_digest(sig, _sign(f"{kind}.{uid}.{ver}.{exp}")) and int(uid) == cu.id \
+                and int(exp) > time.time() and int(ver) == cu.session_ver:
+            return int(exp)
+    except ValueError:
+        pass
+    return 0
+
+
+async def require_elevated(request: Request) -> CurrentUser:
+    """편집자·관리자이고, 10분 안에 다시 인증했어야 한다. 아니면 428 (화면이 인증 코드를 묻는다)."""
+    cu = await current_user(request)
+    if not cu.editor:
+        raise HTTPException(status_code=403, detail="편집 권한이 없습니다")
+    if not elevated_until(request, cu):
+        raise HTTPException(status_code=428, detail="다시 인증이 필요합니다")
+    return cu
+
+
 def check_token(token: str) -> bool:
     return secrets.compare_digest(token.encode(), settings.admin_token.encode())
 
@@ -201,7 +233,7 @@ async def current_user(request: Request, allow_setup: bool = False) -> CurrentUs
         async with SessionLocal() as s:
             u = await s.get(User, parsed[0])
         if u and u.session_ver == parsed[1]:
-            cu = CurrentUser(u.id, u.username, bool(u.is_admin), u.name or "", bool(u.can_edit), bool(u.totp_secret))
+            cu = CurrentUser(u.id, u.username, bool(u.is_admin), u.name or "", bool(u.can_edit), bool(u.totp_secret), u.session_ver)
             if cu.otp_setup_required and not allow_setup:
                 raise HTTPException(status_code=403, detail="2단계 인증을 먼저 등록하세요")
             return cu
@@ -229,6 +261,14 @@ async def require_admin(request: Request) -> str:
     if not u.is_admin:
         raise HTTPException(status_code=403, detail="관리자만 할 수 있습니다")
     return u.username
+
+
+async def audit(request: Request, user: str, action: str, target: str) -> None:
+    from .models import AuditLog
+
+    async with SessionLocal() as s:
+        s.add(AuditLog(user=user, action=action, target=target[:512], ip=request.client.host if request.client else ""))
+        await s.commit()
 
 
 # ------------------------------------------------------------------ 로그인 시도 제한 (워커 1개, 메모리)

@@ -2,7 +2,9 @@ import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from '
 
 // account: 계정으로 로그인했는지 (false 면 CLI 관리자 토큰)
 // edit: Makefile·yaml 편집 가능(편집자·관리자). otp.setup_required 면 2단계 인증을 등록해야 다른 기능을 쓸 수 있다
-export interface Me { user: string; name: string; admin: boolean; edit: boolean; account: boolean; otp: { enabled: boolean; required: boolean; setup_required: boolean } }
+export interface Me { user: string; name: string; admin: boolean; edit: boolean; account: boolean; otp: { enabled: boolean; required: boolean; setup_required: boolean }; elevated_until?: number }
+export interface EnvFile { path: string; sha: string; keys: { key: string; empty: boolean }[] }
+export interface AuditRow { id: number; at: string | null; user: string; action: string; target: string; ip: string }
 export type Role = 'run' | 'edit' | 'admin'
 export interface UserInfo { id: number; username: string; name: string; role: Role; admin: boolean; otp: boolean; created_at: string | null }
 export interface TopoNode {
@@ -83,5 +85,11 @@ export const api = {
   // 서비스 폴더의 compose·쿠버네티스 yaml 구성도
   topology: (id: number) => req<Topology>('GET', `/api/services/${id}/topology`),
   saveTopoNode: (id: number, nodeId: string, sha: string, text: string | null) => req<{ changed: boolean }>('PUT', `/api/services/${id}/topology/node`, { id: nodeId, sha, text }),
+  // 환경변수: 목록은 키만, 값 보기·수정은 다시 인증(428 이면 reauth 후 다시)
+  envList: (id: number) => req<{ files: EnvFile[]; can_edit: boolean; elevated_until: number }>('GET', `/api/services/${id}/env`),
+  envReveal: (id: number, path: string, key: string) => req<{ value: string }>('POST', `/api/services/${id}/env/reveal`, { path, key }),
+  envSet: (id: number, path: string, key: string, value: string | null, sha: string) => req<{ sha: string }>('PUT', `/api/services/${id}/env`, { path, key, value, sha }),
+  reauth: (body: { code?: string; password?: string }) => req<{ until: number }>('POST', '/api/me/reauth', body),
+  audit: () => req<AuditRow[]>('GET', '/api/audit'),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),
 }
