@@ -26,6 +26,8 @@ const ICONS = {
   refresh: <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />,
   trash: <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />,
   logout: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
+  settings: <><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></>,
+  external: <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />,
 } as const
 
 export function Svg({ children, size = 18, sw = 1.9, className }: { children: JSX.Element; size?: number; sw?: number; className?: string }) {

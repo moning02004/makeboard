@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent_ws, api, enroll, runner
+from . import agent_ws, api, enroll, prefs, runner
 from .config import settings
 from .db import init_db
 
@@ -18,6 +18,7 @@ log = logging.getLogger("makeboard")
 async def lifespan(app: FastAPI):
     await init_db()
     await runner.mark_interrupted_runs()
+    await prefs.load()
     if len(settings.admin_token) < 16:
         log.warning("MAKEBOARD_ADMIN_TOKEN 이 너무 짧습니다. `openssl rand -hex 32` 로 만든 값을 쓰세요.")
     yield

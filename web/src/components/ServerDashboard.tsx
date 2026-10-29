@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { usePoints } from '../usePoints'
 import { Icon } from '../icons'
-import type { ServerWithServices, ServiceItem } from '../types'
+import type { Metrics, ServerWithServices, ServiceItem } from '../types'
 import { Gauge, GaugeRow } from './Gauge'
 import { StatusDot, summarize } from './ServiceStatus'
 import { TimeChart, fmtBytes, type Point } from './TimeChart'
@@ -15,13 +15,20 @@ function uptime(sec?: number): string {
   return d ? `${d}일 ${h}시간` : h ? `${h}시간 ${m}분` : `${m}분`
 }
 
-function Stat({ label, value, sub, pct, warnAbove = 85 }: { label: string; value: string; sub?: string; pct?: number; warnAbove?: number }) {
+// CPU 카드 아래 사양: "2소켓 · 28코어 · 56스레드". 0.1 에이전트는 논리 코어 수만 보낸다
+function cpuSpec(m: Metrics): string {
+  if (!m.threads) return m.cores ? `${m.cores}코어` : ''
+  return [m.sockets ? `${m.sockets}소켓` : '', `${m.cores_physical || m.threads}코어`, `${m.threads}스레드`].filter(Boolean).join(' · ')
+}
+
+function Stat({ label, value, sub, detail, pct, warnAbove = 85 }: { label: string; value: string; sub?: string; detail?: string; pct?: number; warnAbove?: number }) {
   return (
     <div className="bg-panel border border-line rounded-2xl px-4 py-3 flex flex-col gap-1 min-w-0">
       <span className="text-[12px] text-muted">{label}</span>
       <span className="text-[22px] font-semibold tabular-nums leading-tight">{value}</span>
       {pct != null && <span className="mt-1 block"><Gauge ratio={pct / 100} fill hi={pct > warnAbove} /></span>}
       {sub && <span className="text-[11px] text-faint tabular-nums truncate">{sub}</span>}
+      {detail && <span className="text-[11px] text-faint truncate -mt-0.5" title={detail}>{detail}</span>}
     </div>
   )
 }
@@ -71,13 +78,19 @@ export function ServerDashboard({ server, onOpen }: { server: ServerWithServices
             <span className={`w-1.5 h-1.5 rounded-full ${server.online ? 'bg-ok' : 'bg-faint'}`} />{server.online ? '연결됨' : '오프라인'}
           </span>
           <span className="text-[12px] text-muted">
-            {[server.hostname, m.cores ? `${m.cores}코어` : '', m.uptime ? `가동 ${uptime(m.uptime)}` : '', server.version ? `에이전트 ${server.version}` : ''].filter(Boolean).join(' · ')}
+            {[server.hostname, m.uptime ? `가동 ${uptime(m.uptime)}` : '', server.version ? `에이전트 ${server.version}` : ''].filter(Boolean).join(' · ')}
           </span>
+          {server.beszel_url && (
+            <a href={server.beszel_url} target="_blank" rel="noopener noreferrer" title="Beszel에서 이 서버의 상태 보기"
+              className="ml-auto inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">
+              Beszel<Icon name="external" size={13} sw={2} />
+            </a>
+          )}
         </section>
 
         {server.online ? <>
           <section className="grid grid-cols-2 md:grid-cols-4 gap-3" aria-label="현재 리소스">
-            <Stat label="CPU" value={`${m.cpu ?? '-'}%`} pct={m.cpu} />
+            <Stat label="CPU" value={`${m.cpu ?? '-'}%`} pct={m.cpu} sub={cpuSpec(m)} detail={m.cpu_model} />
             <Stat label="메모리" value={`${m.ram ?? '-'}%`} pct={m.ram} sub={`${fmtBytes(m.mem_used)} / ${fmtBytes(m.mem_total)}`} />
             <Stat label="디스크" value={`${m.disk ?? '-'}%`} pct={m.disk} sub={`${fmtBytes(m.disk_used)} / ${fmtBytes(m.disk_total)}`} />
             <Stat label="서비스" value={`${running} / ${server.services.length}`} sub="실행 중 / 전체"

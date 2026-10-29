@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import runner, services
+from . import prefs, runner, services
 from .auth import COOKIE, check_token, require_admin, session_value
 from .config import settings
 from .db import SessionLocal, get_session
@@ -85,7 +85,8 @@ async def list_servers(user: str = Admin, s: AsyncSession = Depends(get_session)
     for key in (await s.execute(select(AgentKey.agent_id).order_by(AgentKey.agent_id))).scalars():
         if key not in known:
             out.append({"id": key, "hostname": "", "environment": "dev", "version": "", "online": False,
-                        "metrics": None, "last_seen": None, "pending": True, "services": []})
+                        "metrics": None, "last_seen": None, "beszel_url": services.beszel_link(key),
+                        "pending": True, "services": []})
     return out
 
 
@@ -214,6 +215,22 @@ async def save_layout(service_id: int, body: LayoutIn, user: str = Admin, s: Asy
     svc.layout = {"positions": pos, "favorites": [f for f in body.favorites if NAME_RE.match(f)][:50]}
     await s.commit()
     return svc.layout
+
+
+# ------------------------------------------------------------------ 설정
+@router.get("/settings")
+async def get_settings(user: str = Admin) -> dict:
+    return prefs.describe()
+
+
+@router.put("/settings")
+async def put_settings(body: dict[str, str | None], user: str = Admin) -> dict:
+    """{"beszel_url": "https://..."} 처럼 바꿀 값만 보낸다. null 은 .env 값으로 되돌리기."""
+    try:
+        await prefs.save(body)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return prefs.describe()
 
 
 # ------------------------------------------------------------------ runs

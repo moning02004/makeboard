@@ -1,5 +1,7 @@
 import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from './types'
 
+export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
@@ -43,5 +45,8 @@ export const api = {
   // since: 이미 가진 마지막 점의 시각. 그 뒤의 점만 받는다
   serverMetrics: (id: string, since = 0) => req<{ points: { t: number; cpu?: number; ram?: number; disk?: number; rx?: number; tx?: number }[] }>('GET', `/api/servers/${encodeURIComponent(id)}/metrics?since=${since}`),
   serviceMetrics: (id: number, since = 0) => req<{ points: { t: number; cpu?: number; mem?: number }[] }>('GET', `/api/services/${id}/metrics?since=${since}`),
+  settings: () => req<Record<string, SettingInfo>>('GET', '/api/settings'),
+  // null 은 .env 값으로 되돌리기
+  saveSettings: (changes: Record<string, string | null>) => req<Record<string, SettingInfo>>('PUT', '/api/settings', changes),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),
 }

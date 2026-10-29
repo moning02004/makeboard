@@ -74,3 +74,29 @@ async def test_run_events_sends_only_tail(client):
     assert logs[0]["stream"] == "note" and "300줄" in logs[0]["line"]
     assert len(logs) == api.LOG_TAIL + 1
     assert logs[-1]["seq"] == total
+
+
+async def test_settings_and_beszel_link(client):
+    r = await client.get("/api/servers", headers=AUTH)
+    assert r.json()[0]["beszel_url"] is None
+    s = (await client.get("/api/settings", headers=AUTH)).json()
+    assert s["beszel_url"] == {"value": "", "env": "", "saved": False, "help": s["beszel_url"]["help"]}
+
+    # 저장하면 바로 서버 목록의 링크에 반영된다
+    r = await client.put("/api/settings", headers=AUTH, json={"beszel_url": "https://beszel.example.com/system/{name}",
+                                                                 "public_url": "http://10.0.0.5:8000/"})
+    assert r.status_code == 200 and r.json()["beszel_url"]["saved"]
+    assert r.json()["public_url"]["value"] == "http://10.0.0.5:8000"
+    r = await client.get("/api/servers", headers=AUTH)
+    assert r.json()[0]["beszel_url"] == "https://beszel.example.com/system/srv-1"
+    assert (await client.get("/api/agents/config", headers=AUTH)).json()["public_url"] == "http://10.0.0.5:8000"
+
+    # 잘못된 값, 없는 키는 거부
+    assert (await client.put("/api/settings", headers=AUTH, json={"beszel_url": "javascript:alert(1)"})).status_code == 422
+    assert (await client.put("/api/settings", headers=AUTH, json={"admin_token": "x"})).status_code == 422
+
+    # 빈 값은 끄기, null 은 .env 값으로 되돌리기
+    await client.put("/api/settings", headers=AUTH, json={"beszel_url": ""})
+    assert (await client.get("/api/servers", headers=AUTH)).json()[0]["beszel_url"] is None
+    r = await client.put("/api/settings", headers=AUTH, json={"beszel_url": None, "public_url": None})
+    assert not r.json()["beszel_url"]["saved"] and not r.json()["public_url"]["saved"]

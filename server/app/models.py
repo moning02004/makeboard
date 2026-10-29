@@ -29,6 +29,15 @@ class Server(Base):
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AppSetting(Base):
+    """웹에서 바꾼 설정. 없으면 .env 값을 쓴다 (prefs.py)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+
+
 class AgentKey(Base):
     """웹에서 추가한 에이전트의 토큰. 원문 대신 sha256 만 저장한다."""
 

@@ -30,6 +30,8 @@ export interface Metrics {
   cpu?: number; cores?: number; ram?: number; mem_used?: number; mem_total?: number
   disk?: number; disk_used?: number; disk_total?: number; disk_path?: string
   rx?: number; tx?: number; load?: number[]; uptime?: number; jobs?: number; at?: number
+  // 에이전트 0.2.0 부터
+  cpu_model?: string; sockets?: number; cores_physical?: number; threads?: number
 }
 
 export interface ServerBrief {
@@ -40,6 +42,8 @@ export interface ServerBrief {
   online: boolean
   metrics: Metrics | null
   last_seen: string | null
+  // 설정(MAKEBOARD_BESZEL_URL)이 있을 때만 온다
+  beszel_url?: string | null
 }
 
 export interface Container { name: string; service: string; state: string; health: string; status: string; cpu?: number; mem?: number }

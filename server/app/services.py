@@ -9,8 +9,11 @@ import re
 from collections import OrderedDict
 from datetime import datetime, timezone
 
+from urllib.parse import quote
+
 from sqlalchemy import select
 
+from . import prefs
 from .db import SessionLocal
 from .hub import AgentOffline, hub
 from .makefile import parse_makefile
@@ -138,9 +141,14 @@ def service_dict(svc: Service, srv: Server | None) -> dict:
     }
 
 
+def beszel_link(server_id: str) -> str | None:
+    url = prefs.get("beszel_url").strip()
+    return url.replace("{name}", quote(server_id, safe="")) if url else None
+
+
 def server_brief(srv: Server) -> dict:
     return {
         "id": srv.id, "hostname": srv.hostname, "environment": srv.environment, "version": srv.version,
         "online": hub.online(srv.id), "metrics": hub.metrics.get(srv.id),
-        "last_seen": iso(srv.last_seen),
+        "last_seen": iso(srv.last_seen), "beszel_url": beszel_link(srv.id),
     }

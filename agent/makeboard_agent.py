@@ -30,7 +30,7 @@ import psutil
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
@@ -130,6 +130,32 @@ class Config:
                 found[d.name] = d.resolve()
         found.update(self.fixed)  # 직접 등록한 것이 우선
         return found
+
+
+def cpu_info() -> dict:
+    """CPU 모델, 소켓 수, 물리 코어, 스레드(논리 코어). 바뀌지 않으므로 처음 한 번만 읽는다."""
+    info = {"cpu_model": "", "sockets": 0, "cores_physical": psutil.cpu_count(logical=False) or 0,
+            "threads": psutil.cpu_count() or 0}
+    try:
+        sockets = set()
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            key, _, value = line.partition(":")
+            key, value = key.strip(), value.strip()
+            if key == "physical id":
+                sockets.add(value)
+            elif key in ("model name", "Model") and not info["cpu_model"]:  # Model: 라즈베리파이 등 ARM
+                info["cpu_model"] = value
+        info["sockets"] = len(sockets) or 1
+    except OSError:
+        if platform.system() == "Darwin":
+            try:
+                import subprocess
+                out = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, timeout=3)
+                info["cpu_model"], info["sockets"] = out.stdout.strip(), 1
+            except (OSError, subprocess.SubprocessError):
+                pass
+    info["cpu_model"] = " ".join(info["cpu_model"].split())[:120]
+    return info
 
 
 def sha256(text: str) -> str:
@@ -346,6 +372,7 @@ class Agent:
         return "/"
 
     async def heartbeat(self) -> None:
+        cpu = cpu_info()
         psutil.cpu_percent(None)
         net = psutil.net_io_counters()
         t_prev = time.monotonic()
@@ -369,7 +396,7 @@ class Agent:
                 "disk": round(disk.percent), "disk_used": disk.used, "disk_total": disk.total, "disk_path": disk_path,
                 "rx": round(rx), "tx": round(tx),
                 "load": [round(x, 2) for x in load], "uptime": round(time.time() - psutil.boot_time()),
-                "jobs": len(self.jobs),
+                "jobs": len(self.jobs), **cpu,
             }})
 
     async def handle(self, msg: dict) -> None:

@@ -13,6 +13,7 @@ import { Panel, runLine } from './components/Panel'
 import { ServerDashboard } from './components/ServerDashboard'
 import { ServerList } from './components/ServerList'
 import { ServiceUsage } from './components/ServiceUsage'
+import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { SourceModal } from './components/SourceModal'
 import { Icon } from './icons'
@@ -72,7 +73,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const [pending, setPending] = useState<string | null>(null)
   const [runTarget, setRunTarget] = useState<{ id: number; target: string } | null>(null)
   const [editor, setEditor] = useState<EditorSeed | null>(null)
-  const [modal, setModal] = useState<'source' | 'agent' | null>(null)
+  const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
   const list = useRef<ListHandle>(null)
 
@@ -277,6 +278,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
               <Icon name="plus" size={14} sw={2.4} />노드 추가
             </button>
           )}
+          <button type="button" onClick={() => setModal('settings')} aria-label="설정" title="설정"
+            className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="settings" size={16} /></button>
           <ThemeToggle />
           <button type="button" onClick={() => api.logout().finally(onLogout)} aria-label="로그아웃" title="로그아웃"
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="logout" size={16} /></button>
@@ -334,6 +337,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
         </Modal>
       )}
       {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><SourceModal service={detail} onSync={sync} onClose={() => setModal(null)} /></Modal>}
+      {modal === 'settings' && <Modal onClose={() => setModal(null)}>
+        <Settings onClose={() => setModal(null)} onError={fail} onSaved={() => { loadServers(); toast('설정을 저장했습니다') }} />
+      </Modal>}
       {modal === 'agent' && <Modal onClose={() => setModal(null)}><AddServer servers={servers} onClose={() => setModal(null)} /></Modal>}
       {removing && <Modal onClose={() => setRemoving(null)}><DeleteServer server={removing} onClose={() => setRemoving(null)} onDone={(message) => {
         if (removing.services.some((v) => v.id === svcId)) { setSvcId(null); setDetail(null) }

@@ -41,6 +41,8 @@ docker compose up -d --build
 
 `http://<서버>:8000` 에 접속해 `MAKEBOARD_ADMIN_TOKEN` 값으로 로그인합니다.
 
+서버 상태를 [Beszel](https://beszel.dev)로 함께 본다면 웹 오른쪽 위의 **설정**에서 Beszel 주소를 넣으세요(`.env`의 `MAKEBOARD_BESZEL_URL`로도 됩니다). 서버 대시보드에 Beszel로 가는 버튼이 생깁니다. 주소의 `{name}`은 서버 이름으로 바뀝니다. 설정 창에서는 이 서버 주소(`MAKEBOARD_PUBLIC_URL`)도 바꿀 수 있고, 거기서 저장한 값이 `.env`보다 우선합니다.
+
 운영에서는 앞단에 TLS 리버스 프록시를 두고 `MAKEBOARD_COOKIE_SECURE=true`로 설정하세요. 에이전트 연결(`/ws/agent`)도 같은 주소로 들어오므로 WebSocket 업그레이드를 허용해야 합니다.
 
 - Caddy: 추가 설정이 필요 없습니다.

@@ -27,6 +27,7 @@ services:
       MAKEBOARD_COOKIE_SECURE: ${MAKEBOARD_COOKIE_SECURE:-false}
       # 에이전트 설치 명령어에 들어갈 이 서버 주소 (예: http://10.0.0.5:8000, https://makeboard.example.com)
       MAKEBOARD_PUBLIC_URL: ${MAKEBOARD_PUBLIC_URL:-}
+      MAKEBOARD_BESZEL_URL: ${MAKEBOARD_BESZEL_URL:-}
     ports:
       # 운영에서는 앞단에 TLS 리버스 프록시(Traefik, nginx, Caddy)를 두고 127.0.0.1에만 여세요
       - "${MAKEBOARD_PORT:-8000}:8000"

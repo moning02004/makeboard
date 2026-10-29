@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     agent_dir: str = ""
     # 한 번의 make 실행 최대 시간(초)
     job_timeout: int = 3600
+    # 서버 대시보드의 "Beszel" 버튼이 열 주소. {name} 은 서버 이름으로 바뀐다. 비우면 버튼을 숨긴다.
+    # 이 값과 public_url 은 웹의 설정 창에서 바꿀 수 있고, 거기서 저장한 값이 우선한다 (prefs.py).
+    # 예) https://beszel.example.com 또는 https://beszel.example.com/system/{name}
+    beszel_url: str = ""
 
     @cached_property
     def agent_token_map(self) -> dict[str, str]:

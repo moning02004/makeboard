@@ -22,6 +22,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
+from . import prefs
 from .auth import require_admin
 from .config import settings
 from .db import SessionLocal
@@ -77,7 +78,7 @@ async def docker_context() -> Response:
 # ------------------------------------------------------------------ 웹 API
 @router.get("/api/agents/config")
 async def agents_config(user: str = Admin) -> dict:
-    return {"public_url": settings.public_url.rstrip("/")}
+    return {"public_url": prefs.get("public_url").rstrip("/")}
 
 
 class AgentIn(BaseModel):
