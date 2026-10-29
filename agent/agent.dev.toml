@@ -1,0 +1,9 @@
+# 로컬 개발용 (make dev-agent). 서버를 MAKEBOARD_AGENT_TOKENS="dev-local:dev-agent-token" 으로 띄우세요.
+server = "ws://localhost:8000/ws/agent"
+agent_id = "dev-local"
+token = "dev-agent-token"
+environment = "dev"
+heartbeat_seconds = 3
+
+[projects]
+demo = "examples/demo"

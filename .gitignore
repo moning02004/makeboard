@@ -1,0 +1,10 @@
+.env
+*.db
+__pycache__/
+.pytest_cache/
+.venv/
+node_modules/
+web/dist/
+Makefile.makeboard.bak
+.DS_Store
+.idea/

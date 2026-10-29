@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+"""Makeboard 에이전트.
+
+관리할 서버마다 하나씩 띄운다. 중앙 서버로 먼저 WebSocket 연결을 열고 그 연결로 작업을 받는다.
+그래서 이 서버에는 들어오는 포트를 열 필요가 없다.
+
+    python3 makeboard_agent.py --config /etc/makeboard/agent.toml
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import platform
+import random
+import re
+import shutil
+import signal
+import socket
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+import psutil
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+
+VERSION = "0.1.0"
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+MAX_MAKEFILE = 1024 * 1024
+# GNU make 가 찾는 순서. 없으면 Makefile 로 새로 만든다.
+MAKEFILE_NAMES = ("GNUmakefile", "makefile", "Makefile")
+COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
+STATUS_SECONDS = 15
+DISK_SECONDS = 300  # 서비스 폴더 크기(du)는 오래 걸릴 수 있어 5분마다
+
+
+SIZE_UNITS = {"b": 1, "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4,
+              "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
+
+
+def parse_size(text: str) -> int:
+    """docker stats 의 '12.3MiB' 같은 값을 바이트로."""
+    m = re.match(r"^\s*([\d.]+)\s*([A-Za-z]*)\s*$", text)
+    if not m:
+        raise ValueError(text)
+    return int(float(m.group(1)) * SIZE_UNITS.get(m.group(2).lower() or "b", 1))
+
+
+def find_makefile(base: Path) -> Path | None:
+    for name in MAKEFILE_NAMES:
+        if (base / name).is_file():
+            return base / name
+    return None
+
+log = logging.getLogger("makeboard.agent")
+
+
+# ----------------------------------------------------------------------------- config
+class Config:
+    """설정 파일(선택)과 명령줄 인자를 합친다. 명령줄 값이 우선."""
+
+    def __init__(self, args: argparse.Namespace):
+        raw: dict = {}
+        if args.config and Path(args.config).exists():
+            with open(args.config, "rb") as f:
+                raw = tomllib.load(f)
+        elif args.config_given:
+            sys.exit(f"설정 파일이 없습니다: {args.config}")
+
+        def pick(key: str, cli):
+            value = cli if cli is not None else raw.get(key)
+            if value in (None, ""):
+                sys.exit(f"{key} 값이 필요합니다 (설정 파일 또는 --{key.replace('_', '-')})")
+            return value
+
+        self.server: str = pick("server", args.server)
+        self.agent_id: str = args.agent_id or raw.get("agent_id") or socket.gethostname().split(".")[0]
+        self.token: str = pick("token", args.token)
+        self.environment: str = args.environment or raw.get("environment", "prod")
+        self.make: str = raw.get("make", "make")
+        self.max_jobs: int = int(raw.get("max_concurrent_jobs", 4))
+        self.heartbeat: float = float(raw.get("heartbeat_seconds", 5))
+        self.rescan: float = float(raw.get("rescan_seconds", 30))
+
+        # 직접 등록한 프로젝트
+        self.fixed: dict[str, Path] = {}
+        for name, p in (raw.get("projects") or {}).items():
+            if not NAME_RE.match(name):
+                sys.exit(f"프로젝트 이름은 영문, 숫자, - _ . 만 쓸 수 있습니다: {name}")
+            path_ = Path(p).expanduser().resolve()
+            if not path_.is_dir():
+                log.warning("%s: 폴더가 없습니다: %s", name, path_)
+            self.fixed[name] = path_
+
+        # 자동 탐색할 상위 폴더. 바로 아래 폴더가 모두 프로젝트가 된다 (Makefile 은 웹에서 만들 수 있음).
+        scan = raw.get("scan") or []
+        if isinstance(scan, str):
+            scan = [scan]
+        self.scan_roots: list[Path] = [Path(p).expanduser().resolve() for p in [*scan, *(args.scan or [])]]
+        for root in self.scan_roots:
+            if not root.is_dir():
+                log.warning("scan 폴더가 없습니다: %s", root)
+
+        self.projects: dict[str, Path] = self.discover()
+        if not self.projects and not self.scan_roots:
+            sys.exit("[projects] 에 프로젝트를 등록하거나 scan 폴더를 지정하세요")
+
+    def discover(self) -> dict[str, Path]:
+        found: dict[str, Path] = {}
+        for root in self.scan_roots:
+            try:
+                children = sorted(root.iterdir())
+            except OSError:
+                continue
+            for d in children:
+                if d.name.startswith(".") or not NAME_RE.match(d.name) or not d.is_dir():
+                    continue
+                if d.name in found:
+                    log.warning("같은 이름의 프로젝트가 있어 건너뜁니다: %s", d)
+                    continue
+                found[d.name] = d.resolve()
+        found.update(self.fixed)  # 직접 등록한 것이 우선
+        return found
+
+
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# ------------------------------------------------------------------------------ agent
+class Agent:
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.ws = None
+        self.lock = asyncio.Lock()
+        self.jobs: dict[str, asyncio.subprocess.Process] = {}
+        self.sem = asyncio.Semaphore(cfg.max_jobs)
+        self.reconnect_now = False
+        self.status_kick = asyncio.Event()
+
+    async def send(self, msg: dict) -> None:
+        ws = self.ws
+        if ws is None:
+            return
+        try:
+            async with self.lock:
+                await ws.send(json.dumps(msg, ensure_ascii=False))
+        except ConnectionClosed:
+            pass
+
+    # ---- connection loop
+    async def run_forever(self) -> None:
+        delay = 1.0
+        while True:
+            try:
+                async with connect(self.cfg.server, max_size=8 * 1024 * 1024, ping_interval=20, ping_timeout=20,
+                                   open_timeout=15) as ws:
+                    await ws.send(json.dumps({
+                        "type": "hello", "agent_id": self.cfg.agent_id, "token": self.cfg.token,
+                        "hostname": socket.gethostname(), "environment": self.cfg.environment, "version": VERSION,
+                        "platform": platform.platform(),
+                        "projects": [{"name": n, "path": str(p)} for n, p in self.cfg.projects.items()],
+                    }))
+                    first = json.loads(await asyncio.wait_for(ws.recv(), 15))
+                    if first.get("type") != "welcome":
+                        log.error("서버가 연결을 거부했습니다: %s (웹에서 이 서버를 삭제했다면 docker rm -f makeboard-agent 로 에이전트를 지우세요)",
+                                  first.get("error"))
+                        await asyncio.sleep(30)
+                        continue
+                    log.info("연결됨: %s (%s)", self.cfg.server, self.cfg.agent_id)
+                    self.ws, delay = ws, 1.0
+                    beat = asyncio.create_task(self.heartbeat())
+                    status = asyncio.create_task(self.status_loop())
+                    disk = asyncio.create_task(self.disk_loop())
+                    watch = asyncio.create_task(self.watch_projects(ws))
+                    try:
+                        async for raw in ws:
+                            try:
+                                msg = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            asyncio.create_task(self.handle(msg))
+                    finally:
+                        beat.cancel()
+                        status.cancel()
+                        disk.cancel()
+                        watch.cancel()
+                        self.ws = None
+                    if self.reconnect_now:
+                        self.reconnect_now = False
+                        delay = 0.5
+                        continue
+            except (OSError, ConnectionClosed, InvalidStatus, asyncio.TimeoutError) as e:
+                log.warning("연결 끊김: %s", e)
+            delay = min(delay * 2, 30.0)
+            await asyncio.sleep(delay + random.random())
+
+    async def watch_projects(self, ws) -> None:
+        """scan 폴더에 프로젝트가 생기거나 없어지면 다시 연결해서 서버에 새 목록을 알린다."""
+        if not self.cfg.scan_roots:
+            return
+        while True:
+            await asyncio.sleep(self.cfg.rescan)
+            # 다시 연결하면 서버가 진행 중인 작업을 실패로 처리하므로, 작업이 없을 때만 반영한다
+            if self.jobs:
+                continue
+            found = await asyncio.to_thread(self.cfg.discover)
+            if found == self.cfg.projects:
+                continue
+            added = sorted(set(found) - set(self.cfg.projects))
+            removed = sorted(set(self.cfg.projects) - set(found))
+            log.info("프로젝트 목록 변경 (추가: %s, 제거: %s). 다시 연결합니다", added or "-", removed or "-")
+            self.cfg.projects = found
+            self.reconnect_now = True
+            await ws.close()
+            return
+
+    # ---- 서비스 상태 (docker compose)
+    async def compose_status(self, base: Path) -> dict | None:
+        if not any((base / f).is_file() for f in COMPOSE_FILES):
+            return None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "compose", "ps", "-a", "--format", "json", cwd=str(base),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, err = await asyncio.wait_for(proc.communicate(), 10)
+        except FileNotFoundError:
+            return {"kind": "compose", "containers": [], "error": "docker 명령을 찾을 수 없습니다"}
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"kind": "compose", "containers": [], "error": "docker compose ps 가 응답하지 않습니다"}
+        if proc.returncode != 0:
+            msg = ANSI_RE.sub("", err.decode(errors="replace")).strip().splitlines()
+            return {"kind": "compose", "containers": [], "error": (msg[-1] if msg else "docker compose ps 실패")[:300]}
+        text = out.decode(errors="replace").strip()
+        # compose 2.21 부터는 한 줄에 하나씩(JSON Lines), 그 전에는 JSON 배열
+        rows: list = []
+        try:
+            rows = json.loads(text) if text.startswith("[") else [json.loads(x) for x in text.splitlines() if x.strip()]
+        except json.JSONDecodeError:
+            return {"kind": "compose", "containers": [], "error": "docker compose ps 결과를 읽지 못했습니다"}
+        return {"kind": "compose", "error": None, "containers": [
+            {"name": str(r.get("Name", "")), "service": str(r.get("Service", "")), "state": str(r.get("State", "")),
+             "health": str(r.get("Health", "")), "status": str(r.get("Status", ""))}
+            for r in rows if isinstance(r, dict)]}
+
+    async def docker_usage(self) -> dict[str, dict]:
+        """실행 중인 모든 컨테이너의 CPU·메모리를 한 번에 잰다 (docker stats 한 번).
+
+        CPU 는 서버 전체 대비 % 로 바꾼다 (docker stats 는 코어 하나를 100% 로 센다).
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "stats", "--no-stream", "--format", "{{json .}}",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), 20)
+        except (FileNotFoundError, asyncio.TimeoutError):
+            return {}
+        if proc.returncode != 0:
+            return {}
+        cores = psutil.cpu_count() or 1
+        usage: dict[str, dict] = {}
+        for line in out.decode(errors="replace").splitlines():
+            try:
+                r = json.loads(line)
+                cpu = float(str(r.get("CPUPerc", "0")).rstrip("%") or 0) / cores
+                mem = parse_size(str(r.get("MemUsage", "0")).split("/")[0])
+            except (json.JSONDecodeError, ValueError):
+                continue
+            usage[str(r.get("Name", ""))] = {"cpu": round(cpu, 2), "mem": mem}
+        return usage
+
+    async def folder_size(self, base: Path) -> int | None:
+        """서비스 폴더 크기(바이트). 읽을 수 없는 하위 폴더는 빼고 센다."""
+        try:
+            proc = await asyncio.create_subprocess_exec("du", "-sk", str(base),
+                                                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        except FileNotFoundError:
+            return None
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), 120)
+            return int(out.split()[0]) * 1024
+        except asyncio.TimeoutError:
+            proc.kill()
+        except (ValueError, IndexError):
+            pass
+        return None
+
+    async def disk_loop(self) -> None:
+        while True:
+            sizes = {}
+            for name, base in list(self.cfg.projects.items()):
+                size = await self.folder_size(base)
+                if size is not None:
+                    sizes[name] = size
+            await self.send({"type": "disk", "sizes": sizes})
+            await asyncio.sleep(DISK_SECONDS)
+
+    async def status_loop(self) -> None:
+        """compose 파일이 있는 프로젝트의 컨테이너 상태와 사용량을 보낸다. 바뀌었을 때와 1분마다."""
+        last: dict | None = None
+        quiet = 0
+        while True:
+            report = {}
+            for name, base in list(self.cfg.projects.items()):
+                st = await self.compose_status(base)
+                if st is not None:
+                    report[name] = st
+            # 실행 중인 컨테이너가 있을 때만 사용량을 잰다
+            if any(c["state"] == "running" for st in report.values() for c in st["containers"]):
+                usage = await self.docker_usage()
+                for st in report.values():
+                    total_cpu, total_mem = 0.0, 0
+                    for c in st["containers"]:
+                        u = usage.get(c["name"])
+                        if u:
+                            c.update(u)
+                            total_cpu += u["cpu"]
+                            total_mem += u["mem"]
+                    if any("cpu" in c for c in st["containers"]):
+                        st["usage"] = {"cpu": round(total_cpu, 2), "mem": total_mem}
+            quiet += 1
+            if report != last or quiet >= 4:
+                await self.send({"type": "status", "projects": report})
+                last, quiet = report, 0
+            self.status_kick.clear()
+            try:
+                await asyncio.wait_for(self.status_kick.wait(), STATUS_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+
+    def _disk_path(self) -> str:
+        # 서비스 폴더가 있는 디스크를 본다. 컨테이너에서도 마운트한 호스트 폴더라 호스트 디스크가 잡힌다.
+        for p in [*self.cfg.scan_roots, *self.cfg.projects.values()]:
+            if Path(p).exists():
+                return str(p)
+        return "/"
+
+    async def heartbeat(self) -> None:
+        psutil.cpu_percent(None)
+        net = psutil.net_io_counters()
+        t_prev = time.monotonic()
+        while True:
+            await asyncio.sleep(self.cfg.heartbeat)
+            try:
+                load = os.getloadavg()
+            except OSError:
+                load = (0.0, 0.0, 0.0)
+            mem = psutil.virtual_memory()
+            disk_path = self._disk_path()
+            disk = psutil.disk_usage(disk_path)
+            now, cur = time.monotonic(), psutil.net_io_counters()
+            dt = max(now - t_prev, 0.001)
+            rx = max(cur.bytes_recv - net.bytes_recv, 0) / dt
+            tx = max(cur.bytes_sent - net.bytes_sent, 0) / dt
+            net, t_prev = cur, now
+            await self.send({"type": "heartbeat", "metrics": {
+                "cpu": round(psutil.cpu_percent(None)), "cores": psutil.cpu_count() or 0,
+                "ram": round(mem.percent), "mem_used": mem.total - mem.available, "mem_total": mem.total,
+                "disk": round(disk.percent), "disk_used": disk.used, "disk_total": disk.total, "disk_path": disk_path,
+                "rx": round(rx), "tx": round(tx),
+                "load": [round(x, 2) for x in load], "uptime": round(time.time() - psutil.boot_time()),
+                "jobs": len(self.jobs),
+            }})
+
+    async def handle(self, msg: dict) -> None:
+        kind = msg.get("type")
+        try:
+            if kind == "run":
+                await self.run_job(msg)
+            elif kind == "cancel":
+                await self.cancel(str(msg.get("job_id")))
+            elif kind == "read_makefile":
+                await self.read_makefile(msg)
+            elif kind == "write_makefile":
+                await self.write_makefile(msg)
+            elif kind == "uninstall":
+                await self.uninstall(msg)
+        except Exception as e:  # noqa: BLE001
+            log.exception("%s 처리 중 오류", kind)
+            if msg.get("req_id"):
+                await self.send({"type": "reply", "req_id": msg["req_id"], "ok": False, "error": str(e)})
+
+    # ---- 웹에서 서버를 삭제할 때
+    async def uninstall(self, msg: dict) -> None:
+        """Docker 로 띄운 에이전트면 자기 컨테이너를 지운다. 호스트 설치는 root 권한이 필요해 지우지 못한다.
+
+        컨테이너가 지워지면 이 프로세스도 같이 끝나므로, 결과는 서버가 연결이 끊기는 것으로 확인한다.
+        """
+        name = os.environ.get("MAKEBOARD_CONTAINER", "makeboard-agent")
+        if Path("/.dockerenv").exists() and shutil.which("docker"):
+            await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "mode": "docker", "container": name})
+            await asyncio.sleep(1)
+            log.warning("웹에서 서버를 삭제했습니다. 컨테이너 %s 를 제거합니다", name)
+            proc = await asyncio.create_subprocess_exec("docker", "rm", "-f", name,
+                                                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            out, _ = await proc.communicate()
+            # 여기까지 왔다면 제거에 실패한 것
+            log.error("컨테이너를 제거하지 못했습니다: %s", out.decode(errors="replace").strip())
+            return
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": False, "mode": "host",
+                         "error": "호스트에 직접 설치한 에이전트는 root 권한이 필요해 자동으로 지울 수 없습니다"})
+
+    # ---- makefile
+    def _makefile(self, project: str) -> Path:
+        base = self.cfg.projects.get(project)
+        if base is None:
+            raise ValueError(f"등록되지 않은 프로젝트입니다: {project}")
+        return find_makefile(base) or base / "Makefile"
+
+    async def read_makefile(self, msg: dict) -> None:
+        path = self._makefile(str(msg.get("project")))
+        if not path.exists():
+            # 아직 Makefile 이 없는 폴더. 웹에서 템플릿으로 만들 수 있게 빈 내용으로 알린다.
+            await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "content": "", "sha": sha256(""),
+                             "missing": True})
+            return
+        if path.stat().st_size > MAX_MAKEFILE:
+            raise ValueError("Makefile이 너무 큽니다 (1MB 초과)")
+        text = path.read_text(encoding="utf-8")
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "content": text, "sha": sha256(text)})
+
+    async def write_makefile(self, msg: dict) -> None:
+        path = self._makefile(str(msg.get("project")))
+        content = str(msg.get("content") or "")
+        if len(content.encode()) > MAX_MAKEFILE:
+            raise ValueError("Makefile이 너무 큽니다 (1MB 초과)")
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        if sha256(current) != msg.get("expected_sha"):
+            await self.send({"type": "reply", "req_id": msg["req_id"], "ok": False,
+                             "error": "서버의 Makefile이 그사이 바뀌었습니다. 다시 불러온 뒤 편집하세요"})
+            return
+        owner = path.stat() if path.exists() else path.parent.stat()
+        bak = path.with_name("Makefile.makeboard.bak")
+        if path.exists():
+            bak.write_text(current, encoding="utf-8")
+        tmp = path.with_name(".Makefile.makeboard.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.chmod(tmp, owner.st_mode & 0o777 if path.exists() else 0o644)
+        # 컨테이너에서 root 로 돌 때도 파일 소유자는 원래대로 둔다
+        if os.geteuid() == 0:
+            for f in (tmp, bak):
+                if f.exists():
+                    os.chown(f, owner.st_uid, owner.st_gid)
+        os.replace(tmp, path)
+        log.info("Makefile 저장: %s", path)
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "sha": sha256(content)})
+
+    # ---- jobs
+    async def run_job(self, msg: dict) -> None:
+        job_id = str(msg.get("job_id"))
+        project, target, vars_ = str(msg.get("project")), str(msg.get("target")), msg.get("vars") or {}
+        base = self.cfg.projects.get(project)
+        error = None
+        if base is None:
+            error = f"등록되지 않은 프로젝트입니다: {project}"
+        elif not NAME_RE.match(target):
+            error = f"명령어 이름이 올바르지 않습니다: {target}"
+        else:
+            for k, v in vars_.items():
+                if not VAR_RE.match(str(k)) or not VALUE_RE.match(str(v)):
+                    error = f"인자 {k} 값에 쓸 수 없는 문자가 있습니다"
+        if error:
+            await self.send({"type": "done", "job_id": job_id, "exit_code": None, "error": error})
+            return
+
+        argv = [self.cfg.make, "--no-print-directory", target, *[f"{k}={v}" for k, v in vars_.items()]]
+        timeout = float(msg.get("timeout") or 3600)
+        async with self.sem:
+            await self._execute(job_id, argv, base, timeout)
+
+    async def _execute(self, job_id: str, argv: list[str], cwd: Path, timeout: float) -> None:
+        t0 = time.monotonic()
+        buf: list[list] = []
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MAKEBOARD": "1"}
+        try:
+            proc = await asyncio.create_subprocess_exec(*argv, cwd=str(cwd), env=env, stdin=asyncio.subprocess.DEVNULL,
+                                                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                        start_new_session=True)
+        except FileNotFoundError:
+            await self.send({"type": "done", "job_id": job_id, "exit_code": None, "error": f"{argv[0]} 을 찾을 수 없습니다"})
+            return
+        self.jobs[job_id] = proc
+        log.info("실행 %s: %s (%s)", job_id[:8], " ".join(argv), cwd)
+
+        async def read(stream, name: str) -> None:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    return
+                text = ANSI_RE.sub("", line.decode("utf-8", "replace").rstrip("\r\n"))
+                buf.append([time.time(), name, text])
+
+        async def flush_loop() -> None:
+            while True:
+                await asyncio.sleep(0.2)
+                await flush()
+
+        async def flush() -> None:
+            while buf:
+                chunk = buf[:200]
+                del buf[:200]
+                await self.send({"type": "log", "job_id": job_id, "lines": chunk})
+
+        usage = {"cpu": {}, "rss": 0}
+
+        async def sample() -> None:
+            while True:
+                try:
+                    root = psutil.Process(proc.pid)
+                    procs = [root, *root.children(recursive=True)]
+                    rss = 0
+                    for p in procs:
+                        try:
+                            ct = p.cpu_times()
+                            usage["cpu"][p.pid] = ct.user + ct.system
+                            rss += p.memory_info().rss
+                        except psutil.Error:
+                            pass
+                    usage["rss"] = max(usage["rss"], rss)
+                except psutil.Error:
+                    return
+                await asyncio.sleep(1)
+
+        tasks = [asyncio.create_task(read(proc.stdout, "out")), asyncio.create_task(read(proc.stderr, "err"))]
+        flusher, sampler = asyncio.create_task(flush_loop()), asyncio.create_task(sample())
+        error = None
+        try:
+            await asyncio.wait_for(proc.wait(), timeout)
+        except asyncio.TimeoutError:
+            error = f"시간 초과 ({int(timeout)}초)로 중지했습니다"
+            await self._kill(proc)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        flusher.cancel()
+        sampler.cancel()
+        await flush()
+        self.jobs.pop(job_id, None)
+        code = proc.returncode
+        if code is not None and code < 0 and not error:
+            error = f"신호 {-code}로 중지되었습니다"
+        await self.send({
+            "type": "done", "job_id": job_id, "exit_code": code, "error": error,
+            "duration": round(time.monotonic() - t0, 2),
+            "cpu_seconds": round(sum(usage["cpu"].values()), 2) if usage["cpu"] else None,
+            "max_rss_kb": int(usage["rss"] / 1024) if usage["rss"] else None,
+        })
+        self.status_kick.set()  # make up / down 직후 상태를 바로 갱신
+
+    async def cancel(self, job_id: str) -> None:
+        proc = self.jobs.get(job_id)
+        if proc:
+            log.info("중지 요청 %s", job_id[:8])
+            await self._kill(proc)
+
+    async def _kill(self, proc: asyncio.subprocess.Process) -> None:
+        """프로세스 그룹 전체(make와 자식들)에 SIGTERM, 10초 뒤에도 남아 있으면 SIGKILL."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if proc.returncode is not None:
+                return
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                return
+            try:
+                await asyncio.wait_for(proc.wait(), 10)
+                return
+            except asyncio.TimeoutError:
+                continue
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Makeboard agent")
+    env = os.environ.get
+    ap.add_argument("--config", "-c", default=None,
+                    help="설정 파일 (기본: $MAKEBOARD_AGENT_CONFIG 또는 /etc/makeboard/agent.toml, 없으면 생략)")
+    ap.add_argument("--server", default=env("MAKEBOARD_SERVER"), help="예) ws://192.168.0.4:8000/ws/agent")
+    ap.add_argument("--id", dest="agent_id", default=env("MAKEBOARD_AGENT_ID"), help="에이전트 이름 (기본: 호스트명)")
+    ap.add_argument("--token", default=env("MAKEBOARD_AGENT_TOKEN"))
+    ap.add_argument("--env", dest="environment", default=env("MAKEBOARD_ENVIRONMENT"), help="prod | staging | dev")
+    ap.add_argument("--scan", action="append", metavar="DIR",
+                    help="이 폴더 바로 아래 폴더를 모두 프로젝트로 등록 (여러 번 지정 가능)")
+    ap.add_argument("--verbose", "-v", action="store_true")
+    args = ap.parse_args()
+    args.config_given = args.config is not None
+    if args.config is None:
+        args.config = env("MAKEBOARD_AGENT_CONFIG", "/etc/makeboard/agent.toml")
+        args.config_given = "MAKEBOARD_AGENT_CONFIG" in os.environ
+    if args.scan is None and env("MAKEBOARD_SCAN"):
+        args.scan = [p for p in env("MAKEBOARD_SCAN", "").split(":") if p]
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+    cfg = Config(args)
+    if cfg.projects:
+        log.info("프로젝트 %d개: %s", len(cfg.projects), ", ".join(sorted(cfg.projects)))
+    else:
+        log.warning("프로젝트가 없습니다. scan 폴더 %s 아래에 서비스 폴더가 있는지 확인하세요 "
+                    "(Docker 로 실행했다면 Docker 가 돌고 있는 호스트의 폴더가 마운트됩니다)",
+                    ", ".join(map(str, cfg.scan_roots)) or "-")
+    try:
+        asyncio.run(Agent(cfg).run_forever())
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

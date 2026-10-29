@@ -1,0 +1,10 @@
+.env
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.venv
+web/dist
+server/*.db
+agent/*.toml
+agent/*.service
+.git

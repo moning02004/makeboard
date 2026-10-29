@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 색 토큰: RGB 채널로 정의해서 Tailwind의 bg-panel/50 같은 투명도 표기도 쓸 수 있게 한다.
+   기본은 라이트(F 글꼴 + C안의 남보라), html[data-theme="dark"] 이면 다크(E. 부드러운 다크 터미널). */
+:root {
+  /* F(라이트 터미널)의 고정폭 글꼴 + C안의 남보라 강조색과 연보라 바탕 */
+  --bg: 244 243 250; --canvas: 250 249 254; --panel: 255 255 255; --hover: 241 240 249; --line: 233 231 243;
+  --edge: 176 172 204; --dot: 219 216 234; --frame: 203 199 226;
+  --fg: 29 27 46; --muted: 93 90 115; --faint: 108 105 132;
+  --accent: 91 87 214; --accentsoft: 236 235 253; --onaccent: 255 255 255;
+  --ok: 31 138 87; --fail: 200 60 60; --warn: 161 92 0; --path: 75 71 201;
+  --series-1: 91 87 214; --series-2: 214 96 30;
+  --t-compose: 33 112 214; --t-k8s: 107 79 211; --t-python: 161 110 10; --t-npm: 200 52 52; --t-shell: 88 96 114;
+  --t-comp: 91 87 214; --t-preset: 13 140 128; --t-help: 93 90 115;
+  --console: 29 27 46; --console-fg: 232 230 245; --console-dim: 140 136 168; --console-cmd: 180 176 255;
+  --console-ok: 125 211 165; --console-err: 255 160 160; --console-key: 110 205 225;
+  --card-shadow: 0 1px 2px rgb(40 30 110 / .04), 0 8px 24px rgb(40 30 110 / .06);
+  --font-body: "JetBrains Mono", "Nanum Gothic Coding", ui-monospace, monospace;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: 14 20 17; --canvas: 17 25 21; --panel: 20 28 23; --hover: 26 38 31; --line: 31 43 36;
+  --edge: 70 96 80; --dot: 34 50 42; --frame: 52 72 60;
+  --fg: 220 239 226; --muted: 143 179 156; --faint: 122 154 133;
+  --accent: 94 230 154; --accentsoft: 23 41 31; --onaccent: 14 20 17;
+  --ok: 94 230 154; --fail: 240 122 122; --warn: 242 196 109; --path: 242 196 109;
+  /* 차트 시리즈 색: 1번은 강조색, 2번은 주황 */
+  --series-1: 94 230 154; --series-2: 242 150 90;
+  --t-compose: 96 166 240; --t-k8s: 160 140 246; --t-python: 226 178 80; --t-npm: 240 128 120; --t-shell: 154 166 180;
+  --t-comp: 183 166 255; --t-preset: 64 200 186; --t-help: 143 179 156;
+  --console: 11 16 13; --console-fg: 214 235 221; --console-dim: 112 140 122; --console-cmd: 160 214 255;
+  --console-ok: 94 230 154; --console-err: 255 154 154; --console-key: 110 205 225;
+  --card-shadow: 0 10px 30px rgb(0 0 0 / .22);
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+/* 카드(둥근 패널)에 은은한 그림자 */
+.rounded-2xl.bg-panel { box-shadow: var(--card-shadow); }
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--fg)); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+
+/* 노드 유형별 색 */
+.ty-compose { --t: var(--t-compose); } .ty-k8s { --t: var(--t-k8s); } .ty-python { --t: var(--t-python); }
+.ty-npm { --t: var(--t-npm); } .ty-shell { --t: var(--t-shell); } .ty-comp { --t: var(--t-comp); }
+.ty-preset { --t: var(--t-preset); } .ty-help { --t: var(--t-help); }
+.tile { background: rgb(var(--t) / .12); color: rgb(var(--t)); }
+
+/* 캔버스 */
+.viewport { background-color: rgb(var(--canvas)); background-image: radial-gradient(rgb(var(--dot)) 1.2px, transparent 1.3px); touch-action: none; cursor: grab; }
+.viewport.panning { cursor: grabbing; }
+.badge-st { position: absolute; right: -5px; bottom: -5px; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; border: 2px solid rgb(var(--panel)); }
+.badge-st.running { background: rgb(var(--accent)); } .badge-st.ok { background: rgb(var(--ok)); }
+.badge-st.fail { background: rgb(var(--fail)); } .badge-st.queued { background: rgb(var(--edge)); }
+.badge-st.stopped { background: rgb(var(--faint)); }
+.badge-st.running::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* 패널 */
+.panel { transform: translateX(calc(100% + 24px)); transition: transform .2s ease; }
+.panel.open { transform: none; }
+.panel.full { position: fixed; inset: 0; width: 100% !important; z-index: 40; border: 0; border-radius: 0; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+.panel.full .pwrap { max-width: 860px; margin: 0 auto; width: 100%; }
+
+/* 콘솔과 로그 */
+.console { background: rgb(var(--console)); color: rgb(var(--console-fg)); }
+.console .k { color: rgb(var(--console-key)); } .console .h { font-weight: 600; } .console .d { color: rgb(var(--console-dim)); }
+.log { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); column-gap: 14px; align-content: start; justify-content: start; }
+.log.solo { grid-template-columns: max-content minmax(0, 1fr); }
+.log.solo .tag { display: none; }
+.log .ln { display: contents; }
+.log .ln > span { white-space: pre-wrap; word-break: break-word; }
+.log .ln > .tm, .log .ln > .tag { white-space: nowrap; }
+.log.nowrap { grid-template-columns: max-content max-content max-content; width: max-content; min-width: 100%; }
+.log.nowrap.solo { grid-template-columns: max-content max-content; }
+.log.nowrap .ln > span { white-space: pre; word-break: normal; }
+.log .tm, .log .tag, .log .dim { color: rgb(var(--console-dim)); }
+.log .tm { font-variant-numeric: tabular-nums; }
+.log .cmd { color: rgb(var(--console-cmd)); } .log .okk { color: rgb(var(--console-ok)); } .log .err { color: rgb(var(--console-err)); }
+
+.switch { width: 36px; height: 20px; border-radius: 999px; background: rgb(var(--line)); position: relative; transition: background .15s; flex: none; }
+.switch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .2); transition: transform .15s; }
+.switch.on { background: rgb(var(--accent)); }
+.switch.on::after { transform: translateX(16px); }
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--line)); border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-st.running::after { animation: none; }
+  .panel { transition: none; }
+}
+
+/* 라이트: 테두리 선 대신 그림자와 바탕색으로 구분한다 (다크는 그림자가 잘 안 보여 옅은 선을 둔다).
+   :where 로 우선순위를 낮춰서 선택·실행 상태 테두리(border-accent 등)는 그대로 보이게 한다. */
+:where(:root:not([data-theme="dark"])) .rounded-2xl.bg-panel.border-line,
+:where(:root:not([data-theme="dark"])) .soft-edge { border-color: transparent; }
