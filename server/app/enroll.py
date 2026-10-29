@@ -123,13 +123,14 @@ async def create_agent(body: AgentIn, user: str = Admin) -> dict:
     token = secrets.token_hex(32)
     async with SessionLocal() as s:
         if await s.get(Server, name) and not body.replace:
-            raise HTTPException(409, f"'{name}' 이름의 서버가 이미 있습니다. 업데이트하려면 그 서버의 '다시 설치'를 쓰세요")
+            raise HTTPException(409, f"'{name}' 이름의 서버가 이미 있습니다. 바꾸려면 그 서버의 '편집'을 쓰세요")
         key = await s.get(AgentKey, name)
-        if key:
-            # 한 번도 연결된 적 없는 이름이면 새 토큰으로 바꿔 준다 (이전 명령어는 무효)
-            key.token_sha = token_sha(token)
-        else:
-            s.add(AgentKey(agent_id=name, token_sha=token_sha(token)))
+        if not key:
+            key = AgentKey(agent_id=name)
+            s.add(key)
+        # 다시 만들면 새 토큰으로 바뀌고 이전 명령어는 무효가 된다
+        key.token_sha = token_sha(token)
+        key.scan, key.kubeconfig, key.run_as = ":".join(scan), kubeconfig, run_as
         await s.commit()
 
     return {"agent_id": name, "command": docker_command(url, name, token, body.environment, scan, run_as, kubeconfig)}
@@ -171,6 +172,20 @@ def docker_command(url: str, name: str, token: str, environment: str, scan: list
     ]
     return (f"docker build -t {CONTAINER} {q(url + '/agent/docker.tar.gz')} && "
             f"{{ docker rm -f {CONTAINER} >/dev/null 2>&1; {' '.join(run)}; }}")
+
+
+@router.get("/api/servers/{agent_id}/install")
+async def install_options(agent_id: str, user: str = Admin) -> dict:
+    """편집 화면에 채울, 설치할 때 고른 값. 예전에 설치해 저장된 값이 없으면 에이전트가 보고한 폴더를 쓴다."""
+    if agent_id in settings.agent_token_map:
+        raise HTTPException(409, f"'{agent_id}' 는 .env 의 MAKEBOARD_AGENT_TOKENS 로 등록된 서버라 웹에서 편집할 수 없습니다")
+    async with SessionLocal() as s:
+        key = await s.get(AgentKey, agent_id)
+    scan = [p for p in (key.scan if key else "").split(":") if p]
+    if not scan:
+        reported = (hub.metrics.get(agent_id) or {}).get("disk_path")
+        scan = [reported] if reported and reported != "/" else ["/home/ubuntu/services"]
+    return {"scan": scan, "kubeconfig": key.kubeconfig if key else "", "run_as": key.run_as if key else ""}
 
 
 @router.delete("/api/servers/{agent_id}")

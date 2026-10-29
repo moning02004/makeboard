@@ -61,6 +61,10 @@ class AgentKey(Base):
     agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     token_sha: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # 설치할 때 고른 값. 편집 화면에 채워 넣는다 (scan 은 ':' 로 이음)
+    scan: Mapped[str] = mapped_column(Text, default="")
+    kubeconfig: Mapped[str] = mapped_column(String(1024), default="")
+    run_as: Mapped[str] = mapped_column(String(32), default="")
 
 
 class Service(Base):

@@ -167,4 +167,11 @@ async def test_reinstall_and_kubeconfig(client):
     assert "-v /home/ubuntu/.kube/config:/etc/makeboard/kubeconfig:ro" in cmd and "KUBECONFIG=/etc/makeboard/kubeconfig" in cmd
     r = await client.post("/api/agents", headers=AUTH, json={**body, "replace": True, "kubeconfig": "~/.kube/config"})
     assert r.status_code == 422
+    # 편집 화면은 저장된 설치 값을 불러온다
+    opts = (await client.get("/api/servers/srv-1/install", headers=AUTH)).json()
+    assert opts == {"scan": ["/srv"], "kubeconfig": "/home/ubuntu/.kube/config", "run_as": ""}
+    # 쿠버네티스를 끄고 저장하면 kubeconfig 도 지워진다
+    r = await client.post("/api/agents", headers=AUTH, json={**body, "replace": True, "kubeconfig": ""})
+    assert "KUBECONFIG" not in r.json()["command"]
+    assert (await client.get("/api/servers/srv-1/install", headers=AUTH)).json()["kubeconfig"] == ""
 

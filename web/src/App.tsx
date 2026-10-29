@@ -75,8 +75,9 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [pending, setPending] = useState<string | null>(null)
   const [runTarget, setRunTarget] = useState<{ id: number; target: string } | null>(null)
   const [editor, setEditor] = useState<EditorSeed | null>(null)
-  const [modal, setModal] = useState<'source' | 'agent' | 'reinstall' | 'settings' | null>(null)
+  const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
+  const [editing, setEditing] = useState<ServerWithServices | null>(null)
   const list = useRef<ListHandle>(null)
 
   const fail = useCallback((e: unknown) => {
@@ -237,7 +238,8 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
     <div className="h-full flex bg-bg" style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}>
       <Sidebar servers={servers} current={curServerId} disabled={!!running} open={drawer} onClose={() => setDrawer(false)}
         onPick={openServer} onHelp={me.admin ? () => { setDrawer(false); setModal('agent') } : undefined}
-        onDelete={me.admin ? (s) => { setDrawer(false); setRemoving(s) } : undefined} />
+        onDelete={me.admin ? (s) => { setDrawer(false); setRemoving(s) } : undefined}
+        onEdit={me.admin ? (s) => { setDrawer(false); setEditing(s) } : undefined} />
 
       <main className="flex-1 min-w-0 flex flex-col h-full">
         <header className="h-14 lg:h-[68px] flex-none flex items-center gap-3 px-3 lg:pl-1 lg:pr-3.5 lg:pt-3.5 lg:pb-2">
@@ -293,7 +295,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {!svcId && !curServer && servers.length > 0 ? (
             <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
-            <ServerDashboard server={curServer} onOpen={openService} onReinstall={me.admin ? () => setModal('reinstall') : undefined} />
+            <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
@@ -344,7 +346,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
       </Modal>}
       {modal === 'agent' && <Modal onClose={() => setModal(null)}><AddServer servers={servers} onClose={() => setModal(null)} /></Modal>}
-      {modal === 'reinstall' && curServer && <Modal onClose={() => setModal(null)}><AddServer servers={servers} reinstall={curServer} onClose={() => setModal(null)} /></Modal>}
+      {editing && <Modal onClose={() => setEditing(null)}><AddServer servers={servers} edit={editing} onClose={() => setEditing(null)} /></Modal>}
       {removing && <Modal onClose={() => setRemoving(null)}><DeleteServer server={removing} onClose={() => setRemoving(null)} onDone={(message) => {
         if (removing.services.some((v) => v.id === svcId)) { setSvcId(null); setDetail(null) }
         if (removing.id === srvId) setSrvId(null)

@@ -47,6 +47,7 @@ export const api = {
   agentConfig: () => req<{ public_url: string }>('GET', '/api/agents/config'),
   addAgent: (body: { name: string; environment: string; scan: string[]; public_url: string; run_as: string; kubeconfig: string; replace: boolean }) =>
     req<{ agent_id: string; command: string }>('POST', '/api/agents', body),
+  installOptions: (id: string) => req<{ scan: string[]; kubeconfig: string; run_as: string }>('GET', `/api/servers/${encodeURIComponent(id)}/install`),
   deleteServer: (id: string, uninstall: boolean) => req<{ ok: boolean; agent: { result: 'removed' | 'manual' | 'unconfirmed' | 'offline' | 'kept'; message: string } }>('DELETE', `/api/servers/${encodeURIComponent(id)}?uninstall=${uninstall}`),
   templates: () => req<{ id: string; name: string; description: string; content: string }[]>('GET', '/api/templates'),
   initMakefile: (id: number, template: string) => req<ServiceDetail>('POST', `/api/services/${id}/init`, { template }),

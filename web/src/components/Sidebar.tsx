@@ -11,7 +11,7 @@ function ago(iso: string | null): string {
   return `${Math.floor(s / 86400)}일 전`
 }
 
-export function Sidebar({ servers, current, disabled, open, onClose, onPick, onHelp, onDelete }: {
+export function Sidebar({ servers, current, disabled, open, onClose, onPick, onHelp, onDelete, onEdit }: {
   servers: ServerWithServices[]
   open: boolean
   onClose: () => void
@@ -21,6 +21,7 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
   // 관리자가 아니면 넘기지 않아 버튼을 숨긴다
   onHelp?: () => void
   onDelete?: (server: ServerWithServices) => void
+  onEdit?: (server: ServerWithServices) => void
 }) {
   const connected = servers.filter((s) => !s.pending)
   const pending = servers.filter((s) => s.pending)
@@ -55,7 +56,7 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
                   {s.environment !== 'prod' && <span className="text-[10px] font-semibold px-1.5 py-px rounded bg-ok/10 text-ok">
                     {s.environment === 'staging' ? '스테이징' : '개발'}
                   </span>}
-                  <span className="ml-auto text-[11px] text-faint tabular-nums pr-7">{s.services.length}</span>
+                  <span className={`ml-auto text-[11px] text-faint tabular-nums ${onEdit ? 'pr-14' : onDelete ? 'pr-7' : ''}`}>{s.services.length}</span>
                 </span>
                 {s.online
                   ? <span className="mt-1.5 flex flex-col gap-1">
@@ -66,10 +67,16 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
                   : <span className="block text-[11px] text-faint mt-0.5">오프라인 · {ago(s.last_seen)}</span>}
               </span>
             </button>
-            {onDelete && <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 서버 삭제`} title="서버 삭제"
-              className="absolute right-1.5 top-1.5 w-7 h-7 grid place-items-center rounded-full text-faint hover:text-fail hover:bg-panel lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100">
-              <Icon name="trash" size={14} />
-            </button>}
+            {(onEdit || onDelete) && <span className="absolute right-1.5 top-1.5 flex lg:opacity-0 lg:group-hover:opacity-100 focus-within:opacity-100">
+              {onEdit && <button type="button" onClick={() => onEdit(s)} aria-label={`${s.id} 서버 편집`} title="서버 편집"
+                className="w-7 h-7 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel">
+                <Icon name="edit" size={14} />
+              </button>}
+              {onDelete && <button type="button" onClick={() => onDelete(s)} aria-label={`${s.id} 서버 삭제`} title="서버 삭제"
+                className="w-7 h-7 grid place-items-center rounded-full text-faint hover:text-fail hover:bg-panel">
+                <Icon name="trash" size={14} />
+              </button>}
+            </span>}
           </div>
         ))}
       </nav>
