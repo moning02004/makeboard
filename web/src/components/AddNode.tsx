@@ -6,8 +6,8 @@ const inp = 'w-full h-10 px-3 rounded-xl bg-bg border border-line focus:border-a
 const COMPOSE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml']
 
 /** 구성도의 '노드 추가': 자주 쓰는 서비스를 compose 나 쿠버네티스 yaml 에 넣는다 */
-export function AddNode({ serviceId, me, topo, onDone, onClose }: {
-  serviceId: number; me: Me; topo: Topology; onDone: (msg: string, node: { kind: string; name: string }) => void; onClose: () => void
+export function AddNode({ serviceId, me, topo, preferFile, onDone, onClose }: {
+  serviceId: number; me: Me; topo: Topology; preferFile?: string; onDone: (msg: string, node: { kind: string; name: string }) => void; onClose: () => void
 }) {
   const [items, setItems] = useState<CatalogItem[]>([])
   // '직접 입력'은 이미지 대신 Dockerfile 로 빌드할 수 있다 (compose 만)
@@ -52,7 +52,10 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   ].filter((t) => !(building && t.value === 'k8s'))
   // 기본: compose 파일이 있으면 거기, 없고 쿠버네티스 리소스가 있으면 쿠버네티스, 둘 다 없으면 새 compose
   const hasK8s = topo.nodes.some((n) => n.file && !['compose', 'volume'].includes(n.kind))
-  const [target, setTarget] = useState(composeFiles.length || !hasK8s ? targets[0].value : 'k8s')
+  // 구성도에서 고른 파일이 있으면 그쪽을 기본으로: compose 파일이면 거기, 쿠버네티스 파일이면 쿠버네티스
+  const initial = preferFile && composeFiles.includes(preferFile) ? `compose:${preferFile}`
+    : preferFile ? 'k8s' : composeFiles.length || !hasK8s ? targets[0].value : 'k8s'
+  const [target, setTarget] = useState(initial)
   useEffect(() => { if (building && target === 'k8s') setTarget(targets[0].value) }, [building, target, targets])
   const isCompose = target.startsWith('compose:')
   const composeServices = isCompose ? topo.nodes.filter((n) => n.kind === 'compose' && n.file === target.slice(8)).map((n) => n.name) : []

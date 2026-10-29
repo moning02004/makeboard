@@ -3,6 +3,7 @@ import { api, type Me, type TopoNode, type Topology } from '../api'
 import { editorKeyDown } from '../editorKeys'
 import { AddNode } from './AddNode'
 import { Modal } from './Modal'
+import { Select } from './Select'
 import { Icon } from '../icons'
 
 // 카드 크기와 간격 (px)
@@ -39,6 +40,19 @@ function brief(n: TopoNode): string {
 // 저장 위치의 키. 문서 순서가 바뀌어도 같은 리소스를 가리키도록 종류와 이름으로 쓴다
 const posKey = (n: TopoNode) => `${n.kind}:${n.name}`
 
+/** 고른 파일의 리소스와 그것과 이어진 노드(다른 파일의 Service, Dockerfile, 파일에 없는 참조 등)만 남긴다 */
+function filterByFile(t: Topology, file: string): Topology {
+  if (!file) return t
+  const mine = new Set(t.nodes.filter((n) => n.file === file || n.id.startsWith(`${file}|`)).map((n) => n.id))
+  const keep = new Set(mine)
+  t.edges.forEach((e) => { if (mine.has(e.from)) keep.add(e.to); if (mine.has(e.to)) keep.add(e.from) })
+  return { ...t, nodes: t.nodes.filter((n) => keep.has(n.id)), edges: t.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) }
+}
+
+const fileKey = (id: number) => `mb:topoFile:${id}`
+const storageGet = (k: string) => { try { return localStorage.getItem(k) || '' } catch { return '' } }
+const storageSet = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* 저장 불가 환경 */ } }
+
 /** 열(rank)마다 쌓고, 앞 열과 이어진 위치의 평균으로 순서를 맞춰 선이 덜 엉키게 한다 */
 function layout(t: Topology) {
   const ranks = [...new Set(t.nodes.map((n) => n.rank))].sort((a, b) => a - b)
@@ -72,7 +86,7 @@ function place(t: Topology, auto: Map<string, { x: number; y: number }>, saved: 
 export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me: Me; onToast: (m: string) => void }) {
   const canEdit = me.edit
   const [adding, setAdding] = useState(false)
-  const [topo, setTopo] = useState<Topology | null>(null)
+  const [raw, setRaw] = useState<Topology | null>(null)
   const [error, setError] = useState('')
   const [sel, setSel] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
@@ -106,11 +120,11 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
     setError('')
     try {
       const t = await api.topology(serviceId)
-      setTopo(t)
+      setRaw(t)
       if (keep) setSel(t.nodes.find((n) => n.kind === keep.kind && n.name === keep.name)?.id ?? null)
     } catch (e) { setError((e as Error).message) }
   }, [serviceId])
-  useEffect(() => { setTopo(null); setSel(null); void load() }, [load])
+  useEffect(() => { setRaw(null); setSel(null); void load() }, [load])
   useEffect(() => {
     if (!sel) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest('textarea')) setSel(null) }
@@ -118,9 +132,21 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
     return () => window.removeEventListener('keydown', onKey)
   }, [sel])
 
+  // 어떤 yaml 파일을 볼지 (비우면 모두). 서비스마다 이 브라우저에 기억한다
+  const [file, setFile] = useState(() => storageGet(fileKey(serviceId)))
+  useEffect(() => { setFile(storageGet(fileKey(serviceId))) }, [serviceId])
+  const yamlFiles = useMemo(() => {
+    const count = new Map<string, number>()
+    raw?.nodes.forEach((n) => { if (n.file && !n.missing && n.kind !== 'Dockerfile' && n.kind !== 'volume') count.set(n.file, (count.get(n.file) ?? 0) + 1) })
+    return [...count.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [raw])
+  const activeFile = yamlFiles.some(([f]) => f === file) ? file : ''
+  const pickFile = (f: string) => { setFile(f); storageSet(fileKey(serviceId), f); setSel(null) }
+  const topo = useMemo(() => (raw ? filterByFile(raw, activeFile) : null), [raw, activeFile])
+
   const auto = useMemo(() => (topo ? layout(topo) : null), [topo])
   const [saved, setSaved] = useState<Record<string, { x: number; y: number }>>({})
-  useEffect(() => { if (topo) setSaved(topo.positions || {}) }, [topo])
+  useEffect(() => { if (raw) setSaved(raw.positions || {}) }, [raw])
   const lay = useMemo(() => (topo && auto ? place(topo, auto, saved) : null), [topo, auto, saved])
 
   // 카드를 마우스로 끌어 옮긴다. 놓으면 저장하고, 끌지 않았으면 그냥 누른 것(선택)
@@ -168,13 +194,25 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
         <p className="text-[13px] text-muted">docker-compose.yml 이나 쿠버네티스 yaml 을 서비스 폴더에 두면 여기에 나타납니다.</p>
         {canEdit && <button type="button" onClick={() => setAdding(true)} className="mt-2 self-center h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">+ 노드 추가</button>}
       </div>
-      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={topo} onClose={() => setAdding(false)}
+      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={raw!} preferFile={activeFile} onClose={() => setAdding(false)}
         onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
     </div>
   )
 
   return (
     <div className="relative flex-1 min-w-0 flex overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col">
+      {yamlFiles.length > 1 && (
+        <div className="flex-none px-3 pt-1 pb-2 flex items-center gap-2">
+          <div className="w-[300px] max-w-full">
+            <Select label="볼 파일" value={activeFile} onChange={pickFile} options={[
+              { value: '', label: '모든 파일', description: `yaml ${yamlFiles.length}개` },
+              ...yamlFiles.map(([f, c]) => ({ value: f, label: f, description: `리소스 ${c}개` })),
+            ]} />
+          </div>
+          {activeFile && <span className="text-[12px] text-faint hidden sm:inline">이 파일과 이어진 노드도 함께 보입니다</span>}
+        </div>
+      )}
       <div className={`flex-1 overflow-auto scroll-thin bg-[rgb(var(--canvas))] select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         {/* 점 격자 배경은 그림과 함께 스크롤되도록 안쪽에 깐다 */}
@@ -238,13 +276,14 @@ export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me
           })}
         </div>
       </div>
+      </div>
 
       {canEdit && (
         <button type="button" onClick={() => setAdding(true)}
           className="absolute right-4 bottom-3 h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold inline-flex items-center gap-1.5 hover:brightness-110 shadow-lg">
           <Icon name="plus" size={14} sw={2.4} />노드 추가</button>
       )}
-      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={topo} onClose={() => setAdding(false)}
+      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={raw!} preferFile={activeFile} onClose={() => setAdding(false)}
         onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
 
       <div className="absolute left-3 bottom-3 flex items-center gap-2">
