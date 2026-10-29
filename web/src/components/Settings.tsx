@@ -66,7 +66,7 @@ function General({ onClose, onSaved, onError }: { onClose: () => void; onSaved: 
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
-      <p className="text-[13px] text-muted -mt-1">여기서 저장한 값이 .env 값보다 우선합니다. 비워 두고 저장하면 그 기능을 끕니다.</p>
+      <p className="text-[13px] text-muted -mt-1">저장한 값이 .env 보다 우선합니다. 비우면 꺼집니다.</p>
       {!info ? <p className="text-[13px] text-muted">불러오는 중…</p> : Object.entries(info).map(([k, v]) => (
         <div key={k} className="flex flex-col gap-1.5">
           <label htmlFor={`set-${k}`} className="text-[12px] text-muted">{LABELS[k]?.label ?? k} <span className="text-faint">{v.help}</span></label>
@@ -92,13 +92,13 @@ function General({ onClose, onSaved, onError }: { onClose: () => void; onSaved: 
 
 // ------------------------------------------------------------------ 사용자 (관리자)
 const ROLE_LABEL: Record<Role, string> = { run: '실행', edit: '편집', admin: '관리자' }
-const ROLE_HINT = '실행: 보기와 명령 실행 · 편집: + Makefile·yaml 수정 · 관리자: + 서버·사용자·설정. 편집과 관리자는 2단계 인증이 필수입니다.'
+const ROLE_TITLE: Record<Role, string> = { run: '보기와 명령 실행', edit: '+ Makefile·yaml 수정 · 2단계 인증 필수', admin: '+ 서버·사용자·설정 · 2단계 인증 필수' }
 
 function RolePicker({ value, onChange, disabled, label }: { value: Role; onChange: (r: Role) => void; disabled?: boolean; label: string }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex gap-0.5 p-0.5 rounded-full bg-hover text-[12px] flex-none">
       {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-        <button key={r} type="button" role="radio" aria-checked={value === r} disabled={disabled} onClick={() => value !== r && onChange(r)}
+        <button key={r} type="button" role="radio" aria-checked={value === r} disabled={disabled} title={ROLE_TITLE[r]} onClick={() => value !== r && onChange(r)}
           className={`h-6 px-2.5 rounded-full disabled:opacity-60 ${value === r ? 'bg-accent text-onaccent font-semibold' : 'text-muted hover:text-fg'}`}>{ROLE_LABEL[r]}</button>
       ))}
     </div>
@@ -142,7 +142,7 @@ function Users({ me, onError, onSaved }: { me: Me; onError: (e: unknown) => void
               {u.username === me.user && <span className="text-[11px] text-faint">나</span>}
               <span title={u.otp ? '2단계 인증 사용 중' : '2단계 인증 없음'}
                 className={`text-[10.5px] font-semibold px-1.5 py-px rounded ${u.otp ? 'bg-ok/10 text-ok' : u.role === 'run' ? 'bg-hover text-faint' : 'bg-warn/10 text-warn'}`}>
-                {u.otp ? '2단계 인증' : u.role === 'run' ? '2단계 인증 없음' : '2단계 인증 등록 전'}</span>
+                {u.otp ? '2단계 ✓' : u.role === 'run' ? '2단계 없음' : '2단계 등록 전'}</span>
               <span className="ml-auto">
                 <RolePicker label={`${u.username} 권한`} value={u.role} disabled={busy || u.username === me.user}
                   onChange={(r) => void act(() => api.updateUser(u.id, { role: r }), `${u.username}의 권한을 ${ROLE_LABEL[r]}(으)로 바꿨습니다`)} />
@@ -173,7 +173,13 @@ function Users({ me, onError, onSaved }: { me: Me; onError: (e: unknown) => void
           </li>
         ))}
       </ul>
-      <p className="text-[12px] text-faint -mt-2">{ROLE_HINT} 비밀번호를 바꾸면 그 사용자의 기존 로그인은 모두 끊깁니다.</p>
+      <details className="-mt-2 text-[12px] text-faint">
+        <summary className="cursor-pointer select-none w-fit hover:text-muted">권한 안내</summary>
+        <ul className="mt-1.5 flex flex-col gap-0.5 pl-1">
+          {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <li key={r}><b className="font-semibold text-muted">{ROLE_LABEL[r]}</b> {ROLE_TITLE[r]}</li>)}
+          <li>비밀번호를 재설정하면 그 사용자는 로그아웃됩니다.</li>
+        </ul>
+      </details>
 
       <form onSubmit={add} className="flex flex-col gap-2.5 rounded-xl bg-hover p-3.5">
         <span className="text-[12px] font-medium text-muted">사용자 추가</span>
@@ -222,7 +228,7 @@ function Account({ me, onClose, onSaved }: { me: Me; onClose: () => void; onSave
         <input type="password" className={inp} value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" aria-invalid={mismatch} />
       </label>
       {mismatch && <p className="text-[12px] text-fail -mt-1">새 비밀번호가 서로 다릅니다</p>}
-      <p className="text-[12px] text-faint">바꾸면 다른 기기의 로그인은 끊기고, 이 기기는 그대로 유지됩니다.</p>
+      <p className="text-[12px] text-faint">다른 기기는 로그아웃됩니다.</p>
       {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onClose} className={`${btn} text-muted hover:bg-hover`}>취소</button>
@@ -263,7 +269,7 @@ function TwoFactor({ me, onSaved }: { me: Me; onSaved: (msg: string) => void }) 
         : mode === 'setup' ? <OtpSetup onCancel={reset} onDone={() => { setEnabled(true); reset(); onSaved('2단계 인증을 켰습니다') }} />
         : mode !== 'idle' ? (
           <form onSubmit={confirm} className="flex flex-col gap-2">
-            <span className="text-[12px] text-muted">{mode === 'recovery' ? '복구 코드를 새로 만들면 이전 코드는 모두 쓸 수 없습니다.' : '끄면 비밀번호만으로 로그인합니다.'} 확인을 위해 인증 앱의 코드를 입력하세요.</span>
+            <span className="text-[12px] text-muted">{mode === 'recovery' ? '이전 복구 코드는 모두 무효가 됩니다.' : '끄면 비밀번호만으로 로그인합니다.'}<br />인증 앱의 코드를 입력하세요.</span>
             <div className="flex gap-2">
               <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus autoComplete="one-time-code" placeholder="123456" aria-label="인증 코드"
                 className="flex-1 h-9 px-3 rounded-xl bg-bg border border-line focus:border-accent outline-none font-mono text-[14px] tracking-widest" />
@@ -274,7 +280,7 @@ function TwoFactor({ me, onSaved }: { me: Me; onSaved: (msg: string) => void }) 
           </form>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[12px] text-muted mr-auto">{me.otp.required ? '관리자와 편집자는 꼭 써야 합니다.' : enabled ? '로그인할 때 인증 앱의 코드를 함께 입력합니다.' : '켜면 비밀번호가 새어도 계정을 지킬 수 있습니다.'}</p>
+            <p className="text-[12px] text-muted mr-auto">{me.otp.required ? '관리자·편집자는 필수입니다.' : enabled ? '로그인할 때 코드를 함께 입력합니다.' : '비밀번호가 새어도 계정을 지킵니다.'}</p>
             {enabled ? <>
               <button type="button" onClick={() => setMode('recovery')} className={`${btn} border border-line hover:bg-hover`}>복구 코드 새로 만들기</button>
               {!me.otp.required && <button type="button" onClick={() => setMode('disable')} className={`${btn} text-muted hover:text-fail hover:bg-hover`}>끄기</button>}

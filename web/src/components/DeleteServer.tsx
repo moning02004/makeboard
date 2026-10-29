@@ -49,10 +49,10 @@ export function DeleteServer({ server, onDone, onClose }: { server: ServerWithSe
       <div className="p-6 flex flex-col gap-4">
         <div>
           <h3 id="mTitle" className="text-[17px] font-semibold">서버를 삭제했습니다</h3>
-          <p className="text-[13px] text-muted mt-1">화면에서 지우고 토큰을 무효로 했습니다. 다만 에이전트는 자동으로 지우지 못했습니다.</p>
+          <p className="text-[13px] text-muted mt-1">에이전트는 자동으로 지우지 못했습니다.</p>
         </div>
         <p className="text-[13px] rounded-xl bg-warn/10 text-warn px-3 py-2">{leftover}</p>
-        <p className="text-[13px] text-muted">그 서버에서 아래 명령어로 에이전트 컨테이너를 지우세요.</p>
+        <p className="text-[13px] text-muted">그 서버에서 아래 명령어를 실행하세요.</p>
         {manualBox}
         <div className="flex justify-end">
           <button type="button" onClick={() => onDone(`${server.id} 서버를 삭제했습니다`)} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px]">닫기</button>
@@ -67,8 +67,8 @@ export function DeleteServer({ server, onDone, onClose }: { server: ServerWithSe
         <h3 id="mTitle" className="text-[17px] font-semibold">서버 삭제</h3>
         <p className="text-[13px] text-muted mt-1">
           {server.pending
-            ? <><span className="font-mono text-fg">{server.id}</span> 는 아직 연결된 적이 없습니다. 지우면 발급한 설치 명령어가 무효가 됩니다.</>
-            : <><span className="font-mono text-fg">{server.id}</span> 와 서비스 {server.services.length}개, 실행 기록을 지우고 토큰을 무효로 합니다. 서비스 폴더와 Makefile은 그대로 남습니다.</>}
+            ? <><span className="font-mono text-fg">{server.id}</span> 의 설치 명령어도 무효가 됩니다.</>
+            : <><span className="font-mono text-fg">{server.id}</span> 와 서비스 {server.services.length}개, 실행 기록을 지웁니다.<span className="block text-faint">서버의 서비스 폴더와 Makefile은 그대로 남습니다.</span></>}
         </p>
       </div>
 
@@ -79,14 +79,14 @@ export function DeleteServer({ server, onDone, onClose }: { server: ServerWithSe
             <span className="text-[13px] font-medium">서버 에이전트도 삭제</span>
             <span className="text-[12px] text-muted">
               {server.online
-                ? '그 서버의 makeboard-agent 컨테이너를 자동으로 지웁니다.'
-                : '오프라인이라 자동으로 지울 수 없습니다. 삭제 후 직접 지우는 명령어를 보여드립니다.'}
+                ? 'makeboard-agent 컨테이너를 지웁니다.'
+                : '오프라인이라 지우는 명령어를 대신 보여드립니다.'}
             </span>
           </span>
         </label>
       )}
       {!server.pending && !withAgent && (
-        <p className="text-[12px] text-faint -mt-2">에이전트는 계속 돌면서 접속을 시도하지만, 토큰이 무효라 연결되지 않습니다.</p>
+        <p className="text-[12px] text-faint -mt-2">에이전트는 남지만 다시 연결되지 않습니다.</p>
       )}
 
       {error && <p role="alert" className="text-[13px] text-fail">{error}</p>}

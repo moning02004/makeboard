@@ -81,7 +81,7 @@ export function NodeEditor({ model: m, seed, onSave, onDelete, onClose }: {
     <div className="p-6 flex flex-col gap-5">
       <div>
         <h3 id="mTitle" className="text-[17px] font-semibold">{title}</h3>
-        <p className="text-[13px] text-muted mt-1">make 명령어로 저장되어 터미널에서도 <span className="font-mono">make 이름</span>으로 실행할 수 있습니다.</p>
+        <p className="text-[13px] text-muted mt-1">터미널에서도 <span className="font-mono">make 이름</span>으로 실행됩니다.</p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="flex flex-col gap-1.5 text-[12px] text-muted">명령어 이름
@@ -91,7 +91,7 @@ export function NodeEditor({ model: m, seed, onSave, onDelete, onClose }: {
           <input className={inp} value={desc} onChange={(e) => setDesc(e.target.value)} autoComplete="off"
             placeholder={kind === 'preset' ? '사용자 이름 형식 변경' : 'Redis 캐시 비우기'} /></label>
         <label className="flex flex-col gap-1.5 text-[12px] text-muted sm:col-span-2">
-          <span>그룹 <span className="text-faint">비워두면 그룹 없음 · Makefile에는 <span className="font-mono">##@ 그룹명</span>으로 저장</span></span>
+          <span>그룹 <span className="text-faint">선택</span></span>
           <input className={inp} list="groupList" value={group} onChange={(e) => setGroup(e.target.value)} autoComplete="off" placeholder={groups[0] || '배포'} />
           <datalist id="groupList">{groups.map((g) => <option key={g} value={g} />)}</datalist>
         </label>
@@ -112,7 +112,7 @@ export function NodeEditor({ model: m, seed, onSave, onDelete, onClose }: {
                 value={args[p.name] || ''} placeholder={p.def ? `${p.def} (기본값)` : '값 입력'} onChange={(e) => setArgs({ ...args, [p.name]: e.target.value })} />
             </label>
           ))}
-          <p className="text-[12px] text-faint">인자를 고정해 둔 바로가기입니다. 같은 스크립트를 값만 바꿔 여러 개 만들 때 씁니다.</p>
+          <p className="text-[12px] text-faint">인자 값을 고정해 둔 바로가기입니다.</p>
         </div>
       ) : (
         <>
@@ -123,7 +123,7 @@ export function NodeEditor({ model: m, seed, onSave, onDelete, onClose }: {
           </button>
           {kind === 'cmd' ? (
             <label className="flex flex-col gap-1.5 text-[12px] text-muted">
-              <span>실행할 명령어 <span className="text-faint">한 줄에 하나씩 차례대로 실행 · 인자는 <span className="font-mono">$(SCRIPT)</span>처럼 쓰면 실행할 때 입력받습니다</span></span>
+              <span>실행할 명령어 <span className="text-faint">한 줄에 하나씩 · <span className="font-mono">$(이름)</span>은 실행할 때 입력</span></span>
               <textarea rows={4} spellCheck={false} value={cmds} onChange={(e) => setCmds(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl bg-bg border border-line focus:border-accent outline-none font-mono text-[13px] leading-relaxed resize-y"
                 placeholder="docker compose -f docker-compose.yaml exec -T redis redis-cli FLUSHDB" />

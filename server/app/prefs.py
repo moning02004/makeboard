@@ -17,8 +17,8 @@ from .models import AppSetting
 URL_RE = re.compile(r"^https?://[^\s]{1,500}$")
 # 키: 화면에 보여줄 설명
 EDITABLE: dict[str, str] = {
-    "beszel_url": "서버 대시보드의 Beszel 버튼 주소. {name} 은 서버 이름으로 바뀐다",
-    "public_url": "에이전트가 접속하고 설치 명령어에 들어갈 이 서버의 주소",
+    "beszel_url": "{name} 은 서버 이름으로 바뀝니다",
+    "public_url": "에이전트가 접속할 주소",
 }
 _saved: dict[str, str] = {}
 

@@ -14,6 +14,7 @@ from urllib.parse import quote
 from sqlalchemy import select
 
 from . import prefs
+from .config import settings
 from .db import SessionLocal
 from .hub import AgentOffline, hub
 from .makefile import parse_makefile
@@ -151,4 +152,6 @@ def server_brief(srv: Server) -> dict:
         "id": srv.id, "hostname": srv.hostname, "environment": srv.environment, "version": srv.version,
         "online": hub.online(srv.id), "metrics": hub.metrics.get(srv.id),
         "last_seen": iso(srv.last_seen), "beszel_url": beszel_link(srv.id),
+        # .env(MAKEBOARD_AGENT_TOKENS)로 등록한 서버는 웹에서 편집·삭제할 수 없다
+        "managed": srv.id not in settings.agent_token_map,
     }
