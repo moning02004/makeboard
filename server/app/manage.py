@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--username", "-u", required=True, help="로그인 아이디 (영문, 숫자, _ . - 2~32자)")
     c.add_argument("--name", "-n", default="", help="화면에 보여줄 이름")
     c.add_argument("--password", "-p", help="비밀번호 (8자 이상). 빼면 입력받는다")
+    c.add_argument("--reset-otp", action="store_true", help="2단계 인증도 지운다 (휴대폰과 복구 코드를 모두 잃었을 때)")
     args = ap.parse_args(argv)
 
     password = args.password
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     async def run() -> bool:
         try:
             await init_db()
-            return await create_admin(args.username.strip(), password, args.name)
+            return await create_admin(args.username.strip(), password, args.name, reset_otp=args.reset_otp)
         finally:
             await engine.dispose()
 

@@ -1,8 +1,10 @@
 import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from './types'
 
 // account: 계정으로 로그인했는지 (false 면 CLI 관리자 토큰)
-export interface Me { user: string; name: string; admin: boolean; account: boolean }
-export interface UserInfo { id: number; username: string; name: string; admin: boolean; created_at: string | null }
+// edit: Makefile·yaml 편집 가능(편집자·관리자). otp.setup_required 면 2단계 인증을 등록해야 다른 기능을 쓸 수 있다
+export interface Me { user: string; name: string; admin: boolean; edit: boolean; account: boolean; otp: { enabled: boolean; required: boolean; setup_required: boolean } }
+export type Role = 'run' | 'edit' | 'admin'
+export interface UserInfo { id: number; username: string; name: string; role: Role; admin: boolean; otp: boolean; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 
 export class ApiError extends Error {
@@ -30,11 +32,16 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 
 export const api = {
   me: () => req<Me>('GET', '/api/me'),
-  login: (username: string, password: string) => req<{ ok: boolean }>('POST', '/api/login', { username, password }),
+  login: (username: string, password: string) => req<{ ok: boolean; otp_required?: boolean; ticket?: string }>('POST', '/api/login', { username, password }),
+  loginOtp: (ticket: string, code: string) => req<{ ok: boolean; recovery_left: number }>('POST', '/api/login/otp', { ticket, code }),
+  otpSetup: () => req<{ secret: string; uri: string; qr: string }>('POST', '/api/me/otp/setup'),
+  otpEnable: (code: string) => req<{ recovery_codes: string[] }>('POST', '/api/me/otp/enable', { code }),
+  otpDisable: (code: string) => req<{ ok: boolean }>('POST', '/api/me/otp/disable', { code }),
+  otpRecovery: (code: string) => req<{ recovery_codes: string[] }>('POST', '/api/me/otp/recovery', { code }),
   changePassword: (current: string, next: string) => req<{ ok: boolean }>('PUT', '/api/me/password', { current, new: next }),
   users: () => req<UserInfo[]>('GET', '/api/users'),
-  addUser: (username: string, password: string, name: string, admin: boolean) => req<UserInfo>('POST', '/api/users', { username, password, name, admin }),
-  updateUser: (id: number, patch: { password?: string; name?: string; admin?: boolean }) => req<UserInfo>('PUT', `/api/users/${id}`, patch),
+  addUser: (username: string, password: string, name: string, role: Role) => req<UserInfo>('POST', '/api/users', { username, password, name, role }),
+  updateUser: (id: number, patch: { password?: string; name?: string; role?: Role; reset_otp?: boolean }) => req<UserInfo>('PUT', `/api/users/${id}`, patch),
   deleteUser: (id: number) => req<{ ok: boolean }>('DELETE', `/api/users/${id}`),
   logout: () => req<{ ok: boolean }>('POST', '/api/logout'),
   servers: () => req<ServerWithServices[]>('GET', '/api/servers'),

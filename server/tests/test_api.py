@@ -102,59 +102,102 @@ async def test_settings_and_beszel_link(client):
     assert not r.json()["beszel_url"]["saved"] and not r.json()["public_url"]["saved"]
 
 
+async def _enroll_otp(client) -> tuple[str, list[str]]:
+    """지금 로그인한 계정에 2단계 인증을 등록하고 (비밀값, 복구 코드)를 돌려준다."""
+    from app.auth import otp_now
+
+    setup = (await client.post("/api/me/otp/setup")).json()
+    assert setup["qr"].startswith("data:image/svg+xml") and setup["uri"].startswith("otpauth://totp/Makeboard:")
+    assert (await client.post("/api/me/otp/enable", json={"code": "000000" if otp_now(setup["secret"]) != "000000" else "111111"})).status_code == 422
+    r = await client.post("/api/me/otp/enable", json={"code": otp_now(setup["secret"])})
+    assert r.status_code == 200
+    return setup["secret"], r.json()["recovery_codes"]
+
+
 async def test_users_login_and_roles(client):
-    from app.auth import ensure_admin
+    import time
+
+    from app.auth import ensure_admin, otp_now
 
     await ensure_admin()
-    # 처음 관리자: admin / 관리자 토큰
+    # 처음 관리자: admin / 관리자 토큰. 관리자는 2단계 인증을 등록하기 전에는 아무것도 못 한다
     r = await client.post("/api/login", json={"username": "admin", "password": "test-token-test-token"})
-    assert r.status_code == 200
+    assert r.json() == {"ok": True}
     me = (await client.get("/api/me")).json()
-    assert me == {"user": "admin", "name": "관리자", "admin": True, "account": True}
+    assert me["admin"] and me["otp"] == {"enabled": False, "required": True, "setup_required": True}
+    assert (await client.get("/api/users")).status_code == 403
+    secret, codes = await _enroll_otp(client)
+    assert len(codes) == 10
+    assert (await client.get("/api/me")).json()["otp"]["setup_required"] is False
+    assert (await client.get("/api/users")).status_code == 200
 
-    # 관리자가 사용자 추가
-    r = await client.post("/api/users", json={"username": "kim", "password": "short", "admin": False})
-    assert r.status_code == 422
-    r = await client.post("/api/users", json={"username": "kim", "password": "kim-password", "admin": False})
-    kim = r.json()
-    assert r.status_code == 200 and kim["admin"] is False
-    assert (await client.post("/api/users", json={"username": "kim", "password": "kim-password"})).status_code == 409
+    # 다시 로그인하면 비밀번호 다음에 코드를 묻는다. 방금 쓴 코드는 다시 못 쓰고, 복구 코드는 한 번만 쓸 수 있다
+    client.cookies.clear()
+    r = (await client.post("/api/login", json={"username": "admin", "password": "test-token-test-token"})).json()
+    assert r["otp_required"] and "mb_session" not in client.cookies
+    assert (await client.post("/api/login/otp", json={"ticket": r["ticket"], "code": otp_now(secret)})).status_code == 401
+    assert (await client.post("/api/login/otp", json={"ticket": "otp.1.1.9.bad", "code": codes[0]})).status_code == 401
+    r2 = await client.post("/api/login/otp", json={"ticket": r["ticket"], "code": codes[0]})
+    assert r2.status_code == 200 and r2.json()["recovery_left"] == 9
+    assert (await client.post("/api/login/otp", json={"ticket": r["ticket"], "code": codes[0]})).status_code == 401
+    # 다음 30초 칸의 코드는 쓸 수 있다
+    r3 = await client.post("/api/login/otp", json={"ticket": r["ticket"], "code": otp_now(secret, time.time() + 30)})
+    assert r3.status_code == 200
     admin_cookie = client.cookies.get("mb_session")
+    assert (await client.post("/api/me/otp/disable", json={"code": codes[1]})).status_code == 409  # 관리자는 못 끈다
 
-    # 일반 사용자: 실행·조회는 되고, 관리 기능은 403. 실행 기록에는 아이디가 남는다
+    # 관리자가 사용자 추가: 실행 권한(kim), 편집 권한(lee)
+    assert (await client.post("/api/users", json={"username": "kim", "password": "short"})).status_code == 422
+    assert (await client.post("/api/users", json={"username": "x1", "password": "password-1", "role": "boss"})).status_code == 422
+    kim = (await client.post("/api/users", json={"username": "kim", "password": "kim-password", "role": "run"})).json()
+    lee = (await client.post("/api/users", json={"username": "lee", "password": "lee-password", "role": "edit"})).json()
+    assert kim["role"] == "run" and lee["role"] == "edit" and not kim["otp"]
+    assert (await client.post("/api/users", json={"username": "kim", "password": "kim-password"})).status_code == 409
+
+    # 실행 권한: 2단계 인증 없이 보고 실행만. 편집·관리는 403
     client.cookies.clear()
     assert (await client.post("/api/login", json={"username": "kim", "password": "wrong-password"})).status_code == 401
-    assert (await client.post("/api/login", json={"username": "kim", "password": "kim-password"})).status_code == 200
+    assert (await client.post("/api/login", json={"username": "kim", "password": "kim-password"})).json() == {"ok": True}
+    me = (await client.get("/api/me")).json()
+    assert not me["edit"] and me["otp"]["required"] is False
     assert (await client.get("/api/servers")).status_code == 200
+    svc_id = (await client.get("/api/servers")).json()[0]["services"][0]["id"]
+    assert (await client.put(f"/api/services/{svc_id}/model", json={"model": {}, "sha": ""})).status_code == 403
     assert (await client.get("/api/settings")).status_code == 403
     assert (await client.get("/api/users")).status_code == 403
     assert (await client.post("/api/agents", json={"name": "x", "public_url": "http://a:1"})).status_code == 403
-    assert (await client.delete(f"/api/users/{kim['id']}")).status_code == 403
-
     # 자기 비밀번호 변경
-    r = await client.put("/api/me/password", json={"current": "kim-password", "new": "kim-password-2"})
-    assert r.status_code == 200
-    assert (await client.get("/api/me")).json()["user"] == "kim"
-
-    # 관리자가 비밀번호를 재설정하면 kim 의 기존 세션은 끊긴다
+    assert (await client.put("/api/me/password", json={"current": "kim-password", "new": "kim-password-2"})).status_code == 200
     kim_cookie = client.cookies.get("mb_session")
+
+    # 편집 권한: 2단계 인증을 등록해야 편집할 수 있다
+    client.cookies.clear()
+    await client.post("/api/login", json={"username": "lee", "password": "lee-password"})
+    assert (await client.get("/api/servers")).status_code == 403
+    await _enroll_otp(client)
+    assert (await client.get("/api/me")).json()["edit"] is True
+    r = await client.put(f"/api/services/{svc_id}/model", json={"model": {}, "sha": "stale"})
+    assert r.status_code == 409  # 권한은 통과 (sha 가 달라 저장은 안 됨)
+
+    # 관리자: 비밀번호 재설정은 기존 세션을 끊고, 2단계 인증 초기화도 할 수 있다
     client.cookies.clear()
     client.cookies.set("mb_session", admin_cookie)
     assert (await client.put(f"/api/users/{kim['id']}", json={"password": "reset-password"})).status_code == 200
+    assert (await client.put(f"/api/users/{lee['id']}", json={"reset_otp": True})).json()["otp"] is False
+    assert (await client.put(f"/api/users/{kim['id']}", json={"role": "edit"})).json()["role"] == "edit"
     me_id = next(u["id"] for u in (await client.get("/api/users")).json() if u["username"] == "admin")
-    assert (await client.put(f"/api/users/{me_id}", json={"admin": False})).status_code == 409
+    assert (await client.put(f"/api/users/{me_id}", json={"role": "run"})).status_code == 409
     assert (await client.delete(f"/api/users/{me_id}")).status_code == 409
     client.cookies.clear()
     client.cookies.set("mb_session", kim_cookie)
     assert (await client.get("/api/me")).status_code == 401
 
-    # 지우면 로그인할 수 없다
+    # 지우면 로그인할 수 없다. CLI 관리자 토큰은 2단계 인증 없이 그대로 쓸 수 있다
     client.cookies.clear()
     client.cookies.set("mb_session", admin_cookie)
     assert (await client.delete(f"/api/users/{kim['id']}")).status_code == 200
     client.cookies.clear()
     assert (await client.post("/api/login", json={"username": "kim", "password": "reset-password"})).status_code == 401
-    # CLI 관리자 토큰은 그대로 쓸 수 있다
     assert (await client.get("/api/users", headers=AUTH)).status_code == 200
 
 

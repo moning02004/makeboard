@@ -3,6 +3,7 @@ import { ApiError, api, type Me } from './api'
 import { CommandList, type ListHandle, type NodeState } from './components/CommandList'
 import { InitMakefile } from './components/InitMakefile'
 import { Login } from './components/Login'
+import { OtpSetup } from './components/OtpSetup'
 import { StatusChip } from './components/ServiceStatus'
 import { ThemeToggle } from './components/ThemeToggle'
 import { AddServer } from './components/AddServer'
@@ -44,7 +45,25 @@ export function App() {
   useEffect(check, [check])
   if (auth === 'checking') return null
   if (auth === 'out' || !me) return <Login onDone={check} />
-  return <Main me={me} onLogout={() => { setMe(null); setAuth('out') }} />
+  const logout = () => { setMe(null); setAuth('out') }
+  if (me.otp.setup_required) return <RequireOtp me={me} onDone={check} onLogout={logout} />
+  return <Main me={me} onLogout={logout} />
+}
+
+// 관리자·편집자가 2단계 인증을 아직 등록하지 않았으면 다른 화면 대신 이것만 보여준다
+function RequireOtp({ me, onDone, onLogout }: { me: Me; onDone: () => void; onLogout: () => void }) {
+  return (
+    <div className="min-h-full grid place-items-center p-4 viewport cursor-default">
+      <div className="w-full max-w-[520px] bg-panel border border-line rounded-2xl shadow-xl p-7 flex flex-col gap-5">
+        <div>
+          <h1 className="text-[18px] font-semibold">2단계 인증 등록</h1>
+          <p className="text-[13px] text-muted mt-1">{me.admin ? '관리자' : '편집 권한이 있는 사용자'}는 2단계 인증을 등록해야 Makeboard 를 쓸 수 있습니다. 다음 로그인부터는 비밀번호와 함께 인증 앱의 코드를 입력합니다.</p>
+        </div>
+        <OtpSetup onDone={onDone} />
+        <button type="button" onClick={() => api.logout().finally(onLogout)} className="-mt-2 self-start text-[12px] text-muted hover:text-fg">로그아웃</button>
+      </div>
+    </div>
+  )
 }
 
 const STEP_TO_NODE: Partial<Record<StepStatus, NodeState>> = { queued: 'queued', running: 'running', ok: 'ok', failed: 'fail', stopped: 'stopped' }
@@ -278,7 +297,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
               className={`inline-flex h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
           {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">Makefile</button>}
-          {model && !model.readonly && (
+          {model && !model.readonly && me.edit && (
             <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
               <Icon name="plus" size={14} sw={2.4} />노드 추가
             </button>
@@ -303,8 +322,9 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : (
             <div className="viewport cursor-default flex-1 grid place-items-center p-6">
               <div className={`${detail && !model && !detail.makefile && !detail.sync_error ? 'w-full max-w-[640px]' : 'max-w-[420px]'} text-center flex flex-col items-center gap-3`}>
-                {detail && !model && !detail.makefile && !detail.sync_error ? (
-                  <InitMakefile service={detail} onError={fail} onDone={(d) => { setDetail(d); loadServers() }} />
+                {detail && !model && !detail.makefile && !detail.sync_error ? (me.edit
+                  ? <InitMakefile service={detail} onError={fail} onDone={(d) => { setDetail(d); loadServers() }} />
+                  : <><p className="text-[15px] font-medium">Makefile이 없습니다</p><p className="text-[13px] text-muted">편집 권한이 있는 사용자가 만들 수 있습니다.</p></>
                 ) : detail && !model ? <>
                   <p className="text-[15px] font-medium">Makefile을 불러오지 못했습니다</p>
                   <p className="text-[13px] text-muted">{detail.sync_error || `${detail.path}/Makefile 이 비어 있습니다.`}</p>
@@ -323,7 +343,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
             {panelOpen && model && detail && sel && (
               <Panel model={model} node={sel} service={detail} favorites={favorites} tab={tab} full={full} wrap={wrap}
                 params={params[sel] || {}} confirm={confirm === sel} stream={stream} live={!!stream && (live.has(stream.id) || stream.status === 'running')}
-                runs={runs} running={!!running} readonly={model.readonly}
+                runs={runs} running={!!running} readonly={model.readonly || (me.edit ? null : '편집 권한이 없습니다')}
                 onTab={setTab} onFull={() => setFull((f) => !f)} onWrap={() => setWrap((w) => !w)}
                 onParam={(k, v) => setParams((p) => ({ ...p, [sel]: { ...(p[sel] || {}), [k]: v } }))}
                 onRun={() => requestRun(sel)} onConfirm={() => void doRun(sel)} onCancelConfirm={() => setConfirm(null)} onStop={stop}
