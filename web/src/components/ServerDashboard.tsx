@@ -106,9 +106,9 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-3" aria-label="리소스 추이">
-            <TimeChart title="CPU" unit="pct" points={points} series={[{ key: 'cpu', label: 'CPU', color: S1 }]} />
-            <TimeChart title="메모리" unit="pct" points={points} series={[{ key: 'ram', label: '메모리', color: S1 }]} />
-            <TimeChart title="디스크" unit="pct" points={points} series={[{ key: 'disk', label: '디스크', color: S1 }]} />
+            <TimeChart title="CPU" unit="pct" minMax={20} points={points} series={[{ key: 'cpu', label: 'CPU', color: S1 }]} />
+            <TimeChart title="메모리" unit="pct" fixedMax={100} points={points} series={[{ key: 'ram', label: '메모리', color: S1 }]} />
+            <TimeChart title="디스크" unit="pct" fixedMax={100} points={points} series={[{ key: 'disk', label: '디스크', color: S1 }]} />
           </section>
         </> : (
           <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">

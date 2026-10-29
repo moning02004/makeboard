@@ -27,7 +27,11 @@ function clock(t: number): string {
 }
 
 // 시간에 따른 값. 단일 시리즈는 면을 채우고, 여러 시리즈는 선만 그린다. 마우스를 올리면 그 시각의 값을 보여준다.
-export function TimeChart({ points, series, unit, title }: { points: Point[]; series: Series[]; unit: 'pct' | 'rate' | 'bytes'; title: string }) {
+export function TimeChart({ points, series, unit, title, fixedMax, minMax }: {
+  points: Point[]; series: Series[]; unit: 'pct' | 'rate' | 'bytes'; title: string
+  // fixedMax: 세로축 위쪽 끝을 고정 (디스크·메모리 사용률은 100). minMax: 자동으로 늘리되 이보다 작게는 줄이지 않는다
+  fixedMax?: number; minMax?: number
+}) {
   const box = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(480)
   const [hover, setHover] = useState<number | null>(null)
@@ -44,8 +48,8 @@ export function TimeChart({ points, series, unit, title }: { points: Point[]; se
   const now = points.length ? points[points.length - 1].t : Date.now() / 1000
   const t0 = now - 3600
   const peak = Math.max(0, ...points.flatMap((p) => series.map((s) => Number(p[s.key] ?? 0))))
-  // % 는 값에 맞춰 0~5% 에서 0~100% 사이로 늘린다 (서비스 하나의 CPU 는 1% 도 안 될 때가 많다)
-  const max = unit === 'pct' ? Math.min(100, niceMax(Math.max(5, peak))) : niceMax(Math.max(1, peak))
+  // 고정이 아니면 값에 맞춰 늘린다. % 는 minMax(기본 5%)~100% 사이, 낮은 값이 축을 꽉 채워 보이지 않도록
+  const max = fixedMax ?? (unit === 'pct' ? Math.min(100, niceMax(Math.max(minMax ?? 5, peak))) : niceMax(Math.max(minMax ?? 1, peak)))
   const iw = w - PAD.l - PAD.r, ih = H - PAD.t - PAD.b
   const x = (t: number) => PAD.l + ((t - t0) / 3600) * iw
   const y = (v: number) => PAD.t + ih - (Math.min(v, max) / max) * ih
