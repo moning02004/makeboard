@@ -201,14 +201,17 @@ function Users({ me, onError, onSaved }: { me: Me; onError: (e: unknown) => void
 }
 
 // ------------------------------------------------------------------ 기록 (관리자)
-const ACTION_LABEL: Record<string, string> = { 'env.reveal': '환경변수 보기', 'env.set': '환경변수 저장', 'env.delete': '환경변수 삭제', reauth: '다시 인증' }
+const ACTION_LABEL: Record<string, string> = {
+  'env.reveal': '환경변수 보기', 'env.set': '환경변수 저장', 'env.delete': '환경변수 삭제',
+  'secret.reveal': 'Secret 보기', 'secret.set': 'Secret 저장', 'secret.delete': 'Secret 키 삭제', reauth: '다시 인증',
+}
 
 function Audit({ onError }: { onError: (e: unknown) => void }) {
   const [rows, setRows] = useState<AuditRow[] | null>(null)
   useEffect(() => { api.audit().then(setRows).catch(onError) }, [onError])
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[12px] text-faint">환경변수를 보거나 바꾼 기록입니다. 값은 남기지 않습니다.</p>
+      <p className="text-[12px] text-faint">환경변수·Secret 을 보거나 바꾼 기록입니다. 값은 남기지 않습니다.</p>
       <ul className="rounded-xl border border-line divide-y divide-line max-h-[420px] overflow-auto scroll-thin text-[12px]">
         {!rows && <li className="px-3.5 py-2.5 text-muted">불러오는 중…</li>}
         {rows?.length === 0 && <li className="px-3.5 py-2.5 text-muted">기록이 없습니다</li>}

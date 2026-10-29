@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent_ws, api, auth, catalog, enroll, envs, files, prefs, runner, topology
+from . import agent_ws, api, auth, catalog, enroll, envs, files, k8s_secrets, prefs, runner, topology
 from .config import settings
 from .db import init_db
 
@@ -35,6 +35,7 @@ app.include_router(files.router)
 app.include_router(topology.router)
 app.include_router(envs.router)
 app.include_router(catalog.router)
+app.include_router(k8s_secrets.router)
 
 
 @app.get("/healthz")

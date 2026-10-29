@@ -126,7 +126,7 @@ async def read_file(service_id: int, path: str, user: str = Member) -> dict:
     secret = has_secret(text)
     secret = secret and not is_dockerfile(path)
     return {"path": path, "content": mask_secrets(text) if secret else text, "sha": sha(text),
-            "readonly": "Secret 값은 가리고 보기만 됩니다" if secret else None}
+            "readonly": "Secret 값은 구성도의 Secret 노드에서 키별로 보거나 고칩니다" if secret else None}
 
 
 class SaveIn(BaseModel):

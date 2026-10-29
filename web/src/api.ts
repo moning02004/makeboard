@@ -94,6 +94,10 @@ export const api = {
   envList: (id: number) => req<{ files: EnvFile[]; can_edit: boolean; elevated_until: number }>('GET', `/api/services/${id}/env`),
   envReveal: (id: number, path: string, key: string) => req<{ value: string }>('POST', `/api/services/${id}/env/reveal`, { path, key }),
   envSet: (id: number, path: string, key: string, value: string | null, sha: string) => req<{ sha: string }>('PUT', `/api/services/${id}/env`, { path, key, value, sha }),
+  // 쿠버네티스 Secret 키: 목록은 키만, 값 보기·수정은 다시 인증
+  secretKeys: (id: number, path: string, doc: number) => req<{ keys: { key: string; section: string; empty: boolean }[]; sha: string }>('GET', `/api/services/${id}/secret?path=${encodeURIComponent(path)}&doc=${doc}`),
+  secretReveal: (id: number, path: string, doc: number, key: string) => req<{ value: string; binary: boolean }>('POST', `/api/services/${id}/secret/reveal`, { path, doc, key }),
+  secretSet: (id: number, path: string, doc: number, key: string, value: string | null, sha: string) => req<{ sha: string }>('PUT', `/api/services/${id}/secret`, { path, doc, key, value, sha }),
   reauth: (body: { code?: string; password?: string }) => req<{ until: number }>('POST', '/api/me/reauth', body),
   audit: () => req<AuditRow[]>('GET', '/api/audit'),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),

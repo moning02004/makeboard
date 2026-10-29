@@ -412,7 +412,7 @@ def analyze(sources: dict[str, str]) -> dict:
             nid = f"{path}|doc|{i}"
             g.add(nid, kind, name, file=path, editable=not secret, summary=_k8s_summary(kind, obj),
                   text=files.mask_secrets(body) if secret else body,
-                  readonly="Secret 값은 가리고 보기만 됩니다" if secret else None)
+                  readonly="값은 위 '키'에서 한 번 더 인증하고 보거나 고칩니다" if secret else None)
             items.append((nid, kind, obj))
     _k8s_edges(g, items)
     return {"nodes": list(g.nodes.values()), "edges": g.edges, "errors": errors}

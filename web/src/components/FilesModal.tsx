@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { api, type FileRev } from '../api'
 import { editorKeyDown } from '../editorKeys'
 import { Icon } from '../icons'
@@ -10,15 +10,22 @@ const btn = 'h-9 px-4 rounded-full text-[13px] inline-flex items-center gap-1.5 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '')
 
 /** 서비스 폴더의 Makefile 과 yaml 파일. yaml 은 편집 권한이 있으면 고치고, 버전 기록에서 되돌릴 수 있다 */
-export function FilesModal({ service, canEdit, onSync, onClose }: {
+export function FilesModal({ service, canEdit, onSync, onClose, initialPath = '' }: {
   service: ServiceDetail; canEdit: boolean; onSync: () => Promise<void>; onClose: () => void
+  // 구성 화면에서 보던 파일(선택한 노드의 파일 또는 '볼 파일'). 목록에 있으면 그 파일로 연다
+  initialPath?: string
 }) {
   const [files, setFiles] = useState<{ path: string; size: number }[]>([])
   const [listError, setListError] = useState('')
   const [pick, setPick] = useState(MAKEFILE)
   const [dirty, setDirty] = useState(false)
 
-  useEffect(() => { api.files(service.id).then(setFiles).catch((e) => setListError((e as Error).message)) }, [service.id])
+  useEffect(() => {
+    api.files(service.id).then((f) => {
+      setFiles(f)
+      if (initialPath && f.some((x) => x.path === initialPath)) setPick(initialPath)
+    }).catch((e) => setListError((e as Error).message))
+  }, [service.id, initialPath])
 
   const options = [
     { value: MAKEFILE, label: 'Makefile', description: '노드 편집으로 고칩니다' },
@@ -45,23 +52,40 @@ export function FilesModal({ service, canEdit, onSync, onClose }: {
   )
 }
 
+/** 내용 상자의 오른쪽 위에 떠 있는 복사 버튼. 누르면 잠깐 ✓ 로 바뀐다 */
+function CopyBox({ text, children }: { text: string; children: ReactNode }) {
+  const [done, setDone] = useState<'ok' | 'fail' | null>(null)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setDone('ok') } catch { setDone('fail') }
+    window.setTimeout(() => setDone(null), 1500)
+  }
+  return (
+    <div className="relative group/copy">
+      {children}
+      <button type="button" onClick={copy} aria-label="복사" title={done === 'fail' ? '복사하지 못했습니다. 직접 선택하세요' : '복사'}
+        className={`absolute top-2 right-3 w-8 h-8 grid place-items-center rounded-lg bg-panel/90 border border-line [box-shadow:var(--card-shadow)]
+          ${done === 'ok' ? 'text-ok' : done === 'fail' ? 'text-fail' : 'text-muted hover:text-fg'}`}>
+        <Icon name={done === 'ok' ? 'check' : 'copy'} size={15} sw={2} />
+      </button>
+    </div>
+  )
+}
+
 function MakefileView({ service, onSync, onClose }: { service: ServiceDetail; onSync: () => Promise<void>; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(service.makefile); setNote('복사했습니다') } catch { setNote('직접 선택해서 복사하세요') }
-  }
   const sync = async () => {
     setBusy(true); setNote('')
     try { await onSync(); setNote('서버에서 다시 불러왔습니다') } catch (e) { setNote((e as Error).message) } finally { setBusy(false) }
   }
   return <>
     {service.sync_error && <p className="text-[13px] text-fail">{service.sync_error}</p>}
-    <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{service.makefile || '(비어 있음)'}</pre>
+    <CopyBox text={service.makefile}>
+      <pre className="rounded-xl bg-hover p-4 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{service.makefile || '(비어 있음)'}</pre>
+    </CopyBox>
     <div className="flex items-center gap-2">
       <span className="text-[12px] text-faint mr-auto" title="웹에서 저장하면 이전 내용은 서버의 Makefile.makeboard.bak 에 남습니다">{note || (service.synced_at ? `${when(service.synced_at)} 동기화` : '')}</span>
       <button type="button" onClick={sync} disabled={busy} className={`${btn} border border-line hover:bg-hover`}><Icon name="refresh" size={14} />다시 불러오기</button>
-      <button type="button" onClick={copy} className={`${btn} border border-line hover:bg-hover`}>복사</button>
       <button type="button" onClick={onClose} className={`${btn} text-muted hover:bg-hover`}>닫기</button>
     </div>
   </>
@@ -116,13 +140,19 @@ function YamlView({ serviceId, path, canEdit, onDirty, onClose }: {
           <span className="text-muted">{viewRev.author && `${viewRev.author} · `}{when(viewRev.created_at)}</span>
           <button type="button" onClick={() => setViewRev(null)} className="ml-auto text-muted hover:text-fg">현재 파일로</button>
         </div>
-        <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[400px]">{viewRev.content || '(비어 있음)'}</pre>
+        <CopyBox text={viewRev.content}>
+          <pre className="rounded-xl bg-hover p-4 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[400px]">{viewRev.content || '(비어 있음)'}</pre>
+        </CopyBox>
       </div>
     ) : editable ? (
-      <textarea ref={area} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} spellCheck={false} aria-label={`${path} 내용`}
-        className="w-full h-[50vh] rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
+      <CopyBox text={text}>
+        <textarea ref={area} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} spellCheck={false} aria-label={`${path} 내용`}
+          className="block w-full h-[50vh] rounded-xl bg-hover p-4 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
+      </CopyBox>
     ) : (
-      <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{file.content || '(비어 있음)'}</pre>
+      <CopyBox text={file.content}>
+        <pre className="rounded-xl bg-hover p-4 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[50vh]">{file.content || '(비어 있음)'}</pre>
+      </CopyBox>
     )}
     {error && <p role="alert" className="text-[13px] text-fail whitespace-pre-wrap">{error}</p>}
 

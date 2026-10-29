@@ -3,6 +3,7 @@ import { api, type Me, type TopoNode, type Topology } from '../api'
 import { editorKeyDown } from '../editorKeys'
 import { AddNode } from './AddNode'
 import { Modal } from './Modal'
+import { SecretKeys } from './SecretKeys'
 import { Select } from './Select'
 import { Icon } from '../icons'
 
@@ -83,7 +84,11 @@ function place(t: Topology, auto: Map<string, { x: number; y: number }>, saved: 
 }
 
 /** 서비스 폴더의 compose·쿠버네티스 yaml 구성도. 노드를 누르면 오른쪽 패널에서 그 리소스의 yaml 을 보고 고치거나 지운다 */
-export function TopologyView({ serviceId, me, onToast, addSignal = 0 }: { serviceId: number; me: Me; onToast: (m: string) => void; addSignal?: number }) {
+export function TopologyView({ serviceId, me, onToast, addSignal = 0, onFileFocus }: {
+  serviceId: number; me: Me; onToast: (m: string) => void; addSignal?: number
+  // 지금 보고 있는 파일(선택한 노드의 파일, 없으면 '볼 파일')을 App 에 알린다. '파일' 창이 그 파일로 열린다
+  onFileFocus?: (file: string) => void
+}) {
   const canEdit = me.edit
   const [adding, setAdding] = useState(false)
   // 헤더의 '노드 추가'를 누를 때마다 App 이 addSignal 을 올린다
@@ -181,6 +186,8 @@ export function TopologyView({ serviceId, me, onToast, addSignal = 0 }: { servic
   }
   const resetLayout = () => { setSaved({}); persist({}) }
   const node = topo?.nodes.find((n) => n.id === sel) ?? null
+  const focusFile = node?.file ?? activeFile
+  useEffect(() => { onFileFocus?.(focusFile) }, [focusFile, onFileFocus])
   const focus = hover ?? sel
   const near = useMemo(() => {
     const s = new Set<string>()
@@ -296,7 +303,7 @@ export function TopologyView({ serviceId, me, onToast, addSignal = 0 }: { servic
       <aside className={`panel absolute right-0 top-0 bottom-0 sm:right-3.5 sm:top-1 sm:bottom-3.5 w-full sm:w-[420px] bg-panel sm:rounded-2xl border-line sm:border soft-edge flex flex-col overflow-hidden ${node ? 'open shadow-2xl' : ''}`}
         aria-label="리소스 상세" aria-hidden={!node}>
         {node && topo && (
-          <NodePanel key={node.id + (topo.files[node.file ?? ''] ?? '')} node={node} topo={topo} serviceId={serviceId} canEdit={canEdit}
+          <NodePanel key={node.id + (topo.files[node.file ?? ''] ?? '')} node={node} topo={topo} serviceId={serviceId} canEdit={canEdit} me={me}
             onSelect={setSel} onClose={() => setSel(null)}
             onSaved={(msg, keep) => { onToast(msg); void load(keep) }} />
         )}
@@ -325,8 +332,8 @@ function Legend({ kinds }: { kinds: Set<string> }) {
   )
 }
 
-function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved }: {
-  node: TopoNode; topo: Topology; serviceId: number; canEdit: boolean
+function NodePanel({ node, topo, serviceId, canEdit, me, onSelect, onClose, onSaved }: {
+  node: TopoNode; topo: Topology; serviceId: number; canEdit: boolean; me: Me
   onSelect: (id: string) => void; onClose: () => void; onSaved: (msg: string, keep?: { kind: string; name: string }) => void
 }) {
   const [text, setText] = useState(node.text ?? '')
@@ -387,6 +394,10 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
             <h4 className="text-[12px] font-medium text-faint mb-1">연결</h4>
             <div className="-mx-2.5">{ins.map((e) => link(e.from, e.kind === 'start' ? '먼저 켜짐' : e.label, 'in'))}{outs.map((e) => link(e.to, e.kind === 'start' ? '나중에 켜짐' : e.label, 'out'))}</div>
           </section>
+        )}
+        {node.kind === 'Secret' && !node.missing && node.file && node.id.includes('|doc|') && (
+          <SecretKeys serviceId={serviceId} path={node.file} doc={Number(node.id.split('|')[2])} me={me}
+            onChanged={(msg) => onSaved(msg, { kind: node.kind, name: node.name })} />
         )}
         {node.missing && !node.editable ? (
           <p className="text-[12px] text-muted">다른 리소스가 가리키지만 서비스 폴더의 yaml 에는 없습니다. 클러스터에 직접 만든 것일 수 있습니다.</p>

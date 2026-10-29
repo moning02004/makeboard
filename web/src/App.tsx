@@ -101,6 +101,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [editing, setEditing] = useState<ServerWithServices | null>(null)
   // 서비스 화면: Makefile 명령어 카드 또는 compose·쿠버네티스 구성도
   const [topoAdd, setTopoAdd] = useState(0)
+  const [topoFile, setTopoFile] = useState('') // 구성 화면에서 보던 파일 → '파일' 창이 그 파일로 열린다
   const [view, setView] = useState<'cmd' | 'topo'>(() => (storage.get('mb:view') === 'topo' ? 'topo' : 'cmd'))
   const pickView = (v: 'cmd' | 'topo') => { setView(v); storage.set('mb:view', v); select(null) }
   const list = useRef<ListHandle>(null)
@@ -338,7 +339,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : !svcId && curServer ? (
             <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
           ) : svcId && detail && view === 'topo' ? (
-            <TopologyView serviceId={svcId} me={me} onToast={toast} addSignal={topoAdd} />
+            <TopologyView serviceId={svcId} me={me} onToast={toast} addSignal={topoAdd} onFileFocus={setTopoFile} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
@@ -385,7 +386,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <NodeEditor model={model} seed={editor} onSave={saveNode} onDelete={removeNode} onClose={() => setEditor(null)} />
         </Modal>
       )}
-      {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><FilesModal service={detail} canEdit={me.edit} onSync={sync} onClose={() => setModal(null)} /></Modal>}
+      {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><FilesModal service={detail} canEdit={me.edit} onSync={sync} onClose={() => setModal(null)} initialPath={view === 'topo' ? topoFile : ''} /></Modal>}
       {modal === 'env' && svcId && <Modal wide onClose={() => setModal(null)}><EnvModal serviceId={svcId} me={me} onClose={() => setModal(null)} /></Modal>}
       {modal === 'settings' && <Modal onClose={() => setModal(null)}>
         <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
