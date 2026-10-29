@@ -110,8 +110,8 @@ DEMO_PORT=8100 ./scripts/demo.sh
 
 - 계정: 관리자 `admin` / `demo1234`, 실행 권한 `viewer` / `demo1234`. 데모에서는 2단계 인증이 선택입니다(`MAKEBOARD_OTP_REQUIRED=false`).
 - 예제 서비스(`examples/demo/services`)는 `.demo/`에 복사해서 쓰므로 데모에서 고쳐도 저장소 파일은 바뀌지 않습니다. 모든 명령은 메시지만 출력합니다.
-  - **shop**: 순차 배포(deploy)와 단계별 로그, `config.yaml` 편집·되돌리기
-  - **api**: 쿠버네티스 파드 상태와 CPU·메모리. kubectl은 클러스터에 접속하지 않는 데모용 가짜(`examples/demo/bin/kubectl`)입니다
+  - **shop**: 순차 배포(deploy)와 단계별 로그, `config.yaml` 편집·되돌리기, compose 구성도(`stack.yaml`)
+  - **api**: 쿠버네티스 구성도(Ingress·Service·Deployment·ConfigMap·Secret·HPA)와 파드 상태·CPU·메모리. kubectl은 클러스터에 접속하지 않는 데모용 가짜(`examples/demo/bin/kubectl`)입니다
   - **batch**: 병렬 실행(check), 중지(slow), 실패(broken), 인자 입력(backfill)과 프리셋
   - **new-service**: Makefile이 없는 서비스 → 템플릿으로 만들기
 - 로그는 `.demo/server.log`, `.demo/agent.log`에 남습니다. Ctrl+C로 끕니다.
@@ -192,6 +192,11 @@ backfill-rename-users: ## 사용자 이름 형식 변경   ← 프리셋 (인자
 - **인자 값 제한**: 인자 값은 레시피 안에서 셸로 펼쳐지기 때문에 영문, 숫자, `_ . , : / @ + = % -`만 허용합니다. 서버와 에이전트가 모두 검사합니다.
 - **편집 권한**: 웹에서 Makefile을 편집할 수 있다는 것은 그 서버에서 명령을 실행할 수 있다는 뜻입니다. 일반 사용자 계정도 실행 권한과 같다고 생각하고 꼭 필요한 사람에게만 만드세요.
 - **설정 파일(yaml) 보기·편집**: 서비스 화면의 **파일**에서 Makefile과 서비스 폴더(및 바로 아래 하위 폴더)의 `*.yaml`·`*.yml`을 봅니다. 편집 권한이 있으면 고칠 수 있고, 저장 전에 yaml 문법을 검사합니다. 웹에서 고치면 처음 내용과 저장한 버전이 **변경 기록**에 남아(파일마다 최근 50개) 언제든 되돌릴 수 있습니다. 저장해도 바로 배포되지는 않으니 배포 명령어를 실행하세요. 에이전트 0.4.0 이상이 필요합니다.
+- **구성도**: 서비스 화면 위쪽의 **명령어 | 구성**에서 **구성**을 고르면 서비스 폴더의 docker compose·쿠버네티스 yaml을 분석해 리소스와 연결을 흐름도로 보여줍니다.
+  - 쿠버네티스: Ingress → Service → Deployment·StatefulSet·DaemonSet·Job·CronJob → ConfigMap·Secret·PVC, HPA → 대상. 파드 상태(준비 수)가 워크로드에 붙습니다.
+  - compose: 서비스와 `depends_on`, 이름 있는 볼륨.
+  - 노드를 누르면 오른쪽 패널에서 그 리소스의 yaml을 고치거나 삭제합니다(편집 권한). 파일 전체가 아니라 그 리소스 부분만 바뀌고, 변경 기록에 남습니다.
+  - 파일에 없는데 다른 리소스가 가리키는 것(클러스터에 따로 만든 Secret 등)은 점선으로 보입니다.
 - **비밀값**: 쿠버네티스 `Secret`이 든 파일은 값을 `••••••`로 가리고 보기만 됩니다. `.env`처럼 yaml이 아닌 파일과 숨김 폴더, 서비스 폴더 밖 파일은 열 수 없습니다.
 - **로그인 보호**: 비밀번호는 scrypt로 저장합니다. 같은 IP에서 10분 동안 5번 틀리면(비밀번호·인증 코드 모두) 잠시 로그인을 막습니다. 인증 코드는 한 번 쓰면 다시 쓸 수 없습니다.
 - **최소 권한**: 서비스 폴더를 root가 아닌 전용 계정 소유로 두세요. 레시피가 그 계정으로 실행됩니다. docker 소켓을 쓸 수 있으면 사실상 root와 같다는 점에 유의하세요.

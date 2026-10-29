@@ -5,6 +5,12 @@ import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from '
 export interface Me { user: string; name: string; admin: boolean; edit: boolean; account: boolean; otp: { enabled: boolean; required: boolean; setup_required: boolean } }
 export type Role = 'run' | 'edit' | 'admin'
 export interface UserInfo { id: number; username: string; name: string; role: Role; admin: boolean; otp: boolean; created_at: string | null }
+export interface TopoNode {
+  id: string; kind: string; name: string; rank: number; summary: string[][]
+  file?: string; text?: string; editable?: boolean; readonly?: string | null; missing?: boolean; template?: boolean
+  status?: { ready: number; total: number; tone: 'ok' | 'warn' | 'off' }
+}
+export interface Topology { nodes: TopoNode[]; edges: { from: string; to: string; label: string }[]; errors: string[]; files: Record<string, string> }
 export interface FileRev { id: number; sha: string; author: string; note: string; size?: number; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 
@@ -72,5 +78,8 @@ export const api = {
   fileHistory: (id: number, path: string) => req<FileRev[]>('GET', `/api/services/${id}/files/history?path=${encodeURIComponent(path)}`),
   fileRevision: (id: number, rev: number) => req<FileRev & { content: string }>('GET', `/api/services/${id}/files/history/${rev}`),
   revertFile: (id: number, rev: number, sha: string) => req<{ sha: string; changed: boolean }>('POST', `/api/services/${id}/files/revert`, { rev_id: rev, sha }),
+  // 서비스 폴더의 compose·쿠버네티스 yaml 구성도
+  topology: (id: number) => req<Topology>('GET', `/api/services/${id}/topology`),
+  saveTopoNode: (id: number, nodeId: string, sha: string, text: string | null) => req<{ changed: boolean }>('PUT', `/api/services/${id}/topology/node`, { id: nodeId, sha, text }),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),
 }

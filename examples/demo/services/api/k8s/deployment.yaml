@@ -17,3 +17,46 @@ spec:
           image: ghcr.io/example/api:1.4.2
           ports:
             - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: api-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-db
+                  key: password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-worker
+  template:
+    metadata:
+      labels:
+        app: api-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/example/api:1.4.2
+          args: ["worker"]
+          envFrom:
+            - configMapRef:
+                name: api-config
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 5

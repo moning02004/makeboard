@@ -51,7 +51,7 @@ body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--fg)); font-family
 .tile { background: rgb(var(--t) / .12); color: rgb(var(--t)); }
 
 /* 캔버스 */
-.viewport { background-color: rgb(var(--canvas)); background-image: radial-gradient(rgb(var(--dot)) 1.2px, transparent 1.3px); touch-action: none; cursor: grab; }
+.viewport { background-color: rgb(var(--canvas)); background-image: radial-gradient(rgb(var(--dot)) 1.2px, transparent 1.3px); background-size: 22px 22px; touch-action: none; cursor: grab; }
 .viewport.panning { cursor: grabbing; }
 .badge-st { position: absolute; right: -5px; bottom: -5px; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; border: 2px solid rgb(var(--panel)); }
 .badge-st.running { background: rgb(var(--accent)); } .badge-st.ok { background: rgb(var(--ok)); }

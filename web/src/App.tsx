@@ -16,6 +16,7 @@ import { ServerList } from './components/ServerList'
 import { ServiceUsage } from './components/ServiceUsage'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
+import { TopologyView } from './components/TopologyView'
 import { FilesModal } from './components/FilesModal'
 import { Icon } from './icons'
 import { deleteNode, upsertNode } from './model'
@@ -97,6 +98,9 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
   const [editing, setEditing] = useState<ServerWithServices | null>(null)
+  // 서비스 화면: Makefile 명령어 카드 또는 compose·쿠버네티스 구성도
+  const [view, setView] = useState<'cmd' | 'topo'>(() => (storage.get('mb:view') === 'topo' ? 'topo' : 'cmd'))
+  const pickView = (v: 'cmd' | 'topo') => { setView(v); storage.set('mb:view', v); select(null) }
   const list = useRef<ListHandle>(null)
 
   const fail = useCallback((e: unknown) => {
@@ -247,6 +251,14 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const select = (n: string | null) => { setSel(n); setConfirm(null); if (n) setTab((t) => (t === 'log' && !running ? 'info' : t)); else setFull(false) }
   const focus = (n: string) => { setSel(n); setTab('info'); setConfirm(null); list.current?.focus(n) }
   const panelOpen = !!(sel && model?.nodes[sel])
+  const viewToggle = (
+    <div role="tablist" aria-label="보기" className="inline-flex flex-none gap-0.5 p-0.5 rounded-full bg-panel text-[12px] [box-shadow:var(--card-shadow)]">
+      {([['cmd', '명령어'], ['topo', '구성']] as const).map(([k, label]) => (
+        <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => pickView(k)}
+          className={`h-7 px-3 rounded-full whitespace-nowrap ${view === k ? 'bg-accent text-onaccent font-semibold' : 'text-muted hover:text-fg'}`}>{label}</button>
+      ))}
+    </div>
+  )
   const srv = detail?.server
   const curServerId = svcId ? (servers.find((s) => s.services.some((x) => x.id === svcId))?.id ?? srv?.id ?? null) : srvId
   const curServer = servers.find((s) => s.id === curServerId) || null
@@ -273,7 +285,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
             </button>
           )}
-          <div className="flex items-center gap-2 min-w-0 text-sm">
+          <div className="flex items-center gap-2 min-w-0 overflow-hidden text-sm">
             {!svcId && !curServer ? (
               <span className="font-semibold">서버</span>
             ) : !svcId && curServer ? <>
@@ -291,13 +303,14 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
               {model?.readonly && <span className="text-[11px] px-2 py-0.5 rounded bg-warn/10 text-warn truncate" title={model.readonly}>읽기 전용</span>}
             </> : <span className="text-muted">{loading ? '불러오는 중…' : '서비스를 고르세요'}</span>}
           </div>
+          {detail && <div className="hidden sm:flex ml-1">{viewToggle}</div>}
           <div className="flex-1" />
           {detail && liveStatus && (
             <button type="button" onClick={() => setShowUsage((v) => { storage.set('mb:usage', v ? '0' : '1'); return !v })} aria-pressed={showUsage}
-              className={`inline-flex h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
+              className={`inline-flex flex-none whitespace-nowrap h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
           {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">파일</button>}
-          {model && !model.readonly && me.edit && (
+          {view === 'cmd' && model && !model.readonly && me.edit && (
             <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
               <Icon name="plus" size={14} sw={2.4} />노드 추가
             </button>
@@ -309,12 +322,15 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="logout" size={16} /></button>
         </header>
 
+        {detail && <div className="sm:hidden flex-none px-3 pb-2">{viewToggle}</div>}
         {svcId && detail && liveStatus && showUsage && <ServiceUsage serviceId={svcId} />}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
           {!svcId && !curServer && servers.length > 0 ? (
             <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
             <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
+          ) : svcId && detail && view === 'topo' ? (
+            <TopologyView serviceId={svcId} canEdit={me.edit} onToast={toast} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}

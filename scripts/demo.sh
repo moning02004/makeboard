@@ -55,6 +55,7 @@ fi
 "$VENV/bin/python" - "$PORT" 2>/dev/null <<'PY' || die "포트 $PORT 를 이미 쓰고 있습니다. DEMO_PORT=$((PORT + 100)) ./scripts/demo.sh 처럼 바꿔 보세요"
 import socket, sys
 s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 방금 끈 데모의 TIME_WAIT 는 쓰는 중이 아니다 (uvicorn 과 같은 기준)
 s.bind(("127.0.0.1", int(sys.argv[1])))
 PY
 
@@ -117,7 +118,7 @@ cat <<EOF
 
   둘러볼 것
     · demo-local 서버 → shop: deploy 를 실행해 단계별 로그 보기, 오른쪽 위 '파일'에서 config.yaml 고치고 되돌리기
-    · api: 쿠버네티스 파드 상태와 CPU·메모리 (데모용 가짜 kubectl)
+    · api: '구성'에서 쿠버네티스 구성도, 파드 상태와 CPU·메모리 (데모용 가짜 kubectl)
     · batch: check(병렬), slow(중지 버튼), broken(실패), backfill(인자 입력)
     · new-service: Makefile 이 없는 서비스 → 템플릿으로 만들기
     · 설정 → 사용자 / 내 계정: 권한과 2단계 인증 (데모는 2단계 인증이 선택)
