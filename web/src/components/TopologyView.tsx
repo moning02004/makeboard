@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { api, type TopoNode, type Topology } from '../api'
 import { Icon } from '../icons'
 
@@ -62,6 +62,31 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
   const [error, setError] = useState('')
   const [sel, setSel] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
+  // 빈 곳을 마우스로 끌면 판을 움직인다 (터치는 브라우저 기본 스크롤)
+  const [panning, setPanning] = useState(false)
+  const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
+  const onDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+    const el = e.currentTarget
+    drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, moved: false }
+    el.setPointerCapture(e.pointerId)
+  }
+  const onMove = (e: PointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    if (!d) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return
+    if (!d.moved) { d.moved = true; setPanning(true) }
+    e.currentTarget.scrollLeft = d.left - dx
+    e.currentTarget.scrollTop = d.top - dy
+  }
+  const onUp = (e: PointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    drag.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+    setPanning(false)
+    if (d && !d.moved) setSel(null) // 끌지 않고 누르기만 했으면 선택 해제
+  }
 
   const load = useCallback(async (keep?: { kind: string; name: string }) => {
     setError('')
@@ -101,7 +126,8 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
 
   return (
     <div className="relative flex-1 min-w-0 flex overflow-hidden">
-      <div className="flex-1 overflow-auto scroll-thin bg-[rgb(var(--canvas))]" onClick={() => setSel(null)}>
+      <div className={`flex-1 overflow-auto scroll-thin bg-[rgb(var(--canvas))] select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         {/* 점 격자 배경은 그림과 함께 스크롤되도록 안쪽에 깐다 */}
         <div className="relative min-w-full min-h-full" style={{ width: lay.width, height: lay.height,
           backgroundImage: 'radial-gradient(rgb(var(--dot)) 1.2px, transparent 1.3px)', backgroundSize: '22px 22px' }}>
