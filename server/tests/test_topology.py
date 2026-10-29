@@ -123,13 +123,17 @@ def test_k8s_graph():
     assert by["Secret:api-db"]["editable"] is False and "ZGVtbw==" not in by["Secret:api-db"]["text"]
     assert ["replicas", "2"] in by["Deployment:api"]["summary"]
     assert [by[k]["rank"] for k in ("Ingress:web", "Service:api", "Deployment:api", "Secret:api-db")] == [0, 1, 2, 3]
+    assert {e["kind"] for e in g["edges"] if e["label"] in ("80", "8000") or "shop.example.com" in e["label"]} == {"traffic"}
+    assert {e["kind"] for e in g["edges"] if e["label"] in ("envFrom", "env", "template")} == {"ref"}
 
 
 def test_compose_graph_and_blocks():
     g = analyze({"docker-compose.yml": COMPOSE})
-    assert edges(g) == {("compose:web", "compose:api"), ("compose:api", "compose:db"), ("compose:db", "volume:pgdata")}
+    # 켜지는 순서대로: db → api → web, 볼륨은 쓰는 서비스로
+    assert edges(g) == {("compose:api", "compose:web"), ("compose:db", "compose:api"), ("volume:pgdata", "compose:db")}
+    assert {e["kind"] for e in g["edges"] if e["label"] == "먼저"} == {"start"}
     by = {n["name"]: n for n in g["nodes"]}
-    assert [by[k]["rank"] for k in ("web", "api", "db", "pgdata")] == [0, 1, 2, 3]
+    assert [by[k]["rank"] for k in ("pgdata", "db", "api", "web")] == [0, 1, 2, 3]
     assert by["web"]["summary"] == [["image", "nginx:1.27"], ["ports", "8080:80"]] and by["api"]["summary"] == [["build", "."]]
     assert by["api"]["text"] == "api:\n  build: .\n  depends_on: [db]\n"  # 들여쓰기를 걷어서 보여 준다
     blocks, child = compose_blocks(COMPOSE)

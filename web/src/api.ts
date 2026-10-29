@@ -10,7 +10,9 @@ export interface TopoNode {
   file?: string; text?: string; editable?: boolean; readonly?: string | null; missing?: boolean; template?: boolean
   status?: { ready: number; total: number; tone: 'ok' | 'warn' | 'off' }
 }
-export interface Topology { nodes: TopoNode[]; edges: { from: string; to: string; label: string }[]; errors: string[]; files: Record<string, string> }
+// 선 종류: start 먼저 켜짐 → 나중, traffic 요청 흐름, ref 설정·볼륨 사용·가리킴
+export interface TopoEdge { from: string; to: string; label: string; kind: 'start' | 'traffic' | 'ref' }
+export interface Topology { nodes: TopoNode[]; edges: TopoEdge[]; errors: string[]; files: Record<string, string> }
 export interface FileRev { id: number; sha: string; author: string; note: string; size?: number; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 

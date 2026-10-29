@@ -152,7 +152,7 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
               return (
                 <g key={i} opacity={focus && !on ? 0.25 : 1}>
                   <path d={d} fill="none" stroke={on ? 'rgb(var(--accent))' : 'rgb(var(--faint))'} strokeWidth={on ? 2 : 1.4}
-                    markerEnd={on ? 'url(#arrOn)' : 'url(#arr)'} />
+                    strokeDasharray={e.kind === 'ref' ? '4 4' : undefined} markerEnd={on ? 'url(#arrOn)' : 'url(#arr)'} />
                   {on && e.label && !back && (
                     <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle" className="fill-[rgb(var(--muted))] text-[10px] font-mono">{e.label}</text>
                   )}
@@ -193,6 +193,7 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
         <button type="button" onClick={() => void load(node ? { kind: node.kind, name: node.name } : undefined)}
           className="h-8 px-3 rounded-full bg-panel text-[12px] text-muted hover:text-fg inline-flex items-center gap-1.5 [box-shadow:var(--card-shadow)]">
           <Icon name="refresh" size={13} />다시 불러오기</button>
+        <Legend kinds={new Set(topo.edges.map((e) => e.kind))} />
         {topo.errors.length > 0 && <span className="text-[12px] text-warn bg-panel rounded-full px-3 py-1.5" title={topo.errors.join('\n')}>건너뛴 파일 {topo.errors.length}개</span>}
       </div>
 
@@ -205,6 +206,26 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
         )}
       </aside>
     </div>
+  )
+}
+
+// 화면에 있는 선 종류만 뜻을 보여 준다
+function Legend({ kinds }: { kinds: Set<string> }) {
+  const items = ([
+    ['start', false, '먼저 켜짐 → 나중'],
+    ['traffic', false, '요청 흐름'],
+    ['ref', true, '설정·볼륨 사용'],
+  ] as const).filter(([k]) => kinds.has(k))
+  if (!items.length) return null
+  return (
+    <span className="h-8 px-3 rounded-full bg-panel text-[11.5px] text-muted inline-flex items-center gap-3 [box-shadow:var(--card-shadow)]">
+      {items.map(([k, dashed, label]) => (
+        <span key={k} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <svg width="22" height="8" aria-hidden="true"><path d="M1 4H16" stroke="rgb(var(--faint))" strokeWidth="1.4" strokeDasharray={dashed ? '3 3' : undefined} /><path d="M15 1L21 4L15 7z" fill="rgb(var(--faint))" /></svg>
+          {label}
+        </span>
+      ))}
+    </span>
   )
 }
 
@@ -267,7 +288,7 @@ function NodePanel({ node, topo, serviceId, canEdit, onSelect, onClose, onSaved 
         {(ins.length > 0 || outs.length > 0) && (
           <section>
             <h4 className="text-[12px] font-medium text-faint mb-1">연결</h4>
-            <div className="-mx-2.5">{ins.map((e) => link(e.from, e.label, 'in'))}{outs.map((e) => link(e.to, e.label, 'out'))}</div>
+            <div className="-mx-2.5">{ins.map((e) => link(e.from, e.kind === 'start' ? '먼저 켜짐' : e.label, 'in'))}{outs.map((e) => link(e.to, e.kind === 'start' ? '나중에 켜짐' : e.label, 'out'))}</div>
           </section>
         )}
         {node.missing ? (

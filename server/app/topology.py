@@ -175,9 +175,10 @@ class Graph:
             self.add(nid, kind, name, missing=True, editable=False)
         return nid
 
-    def link(self, a: str, b: str, label: str = "") -> None:
+    def link(self, a: str, b: str, label: str = "", kind: str = "ref") -> None:
+        """kind: start = a 가 먼저 켜져야 b 가 켜짐, traffic = 요청이 a 에서 b 로, ref = a 를 b 가 쓴다 / a 가 b 를 가리킨다"""
         if a != b and not any(e["from"] == a and e["to"] == b for e in self.edges):
-            self.edges.append({"from": a, "to": b, "label": label})
+            self.edges.append({"from": a, "to": b, "label": label, "kind": kind})
 
 
 def _k8s_summary(kind: str, obj: dict) -> list[list[str]]:
@@ -252,7 +253,7 @@ def _k8s_edges(g: Graph, items: list[tuple[str, str, dict]]) -> None:
                         _, labels = _pod(wkind, wobj)
                         if labels and all(labels.get(k) == v for k, v in sel.items()):
                             ports = ", ".join(str(p.get("targetPort", p.get("port"))) for p in spec.get("ports") or [] if isinstance(p, dict))
-                            g.link(nid, wid, ports)
+                            g.link(nid, wid, ports, "traffic")
         elif kind == "Ingress":
             backs = [_get(spec, "defaultBackend", "service")] + [
                 _get(p, "backend", "service") for r in spec.get("rules") or [] for p in _get(r, "http", "paths", default=[])]
@@ -260,9 +261,9 @@ def _k8s_edges(g: Graph, items: list[tuple[str, str, dict]]) -> None:
                 for p in _get(r, "http", "paths", default=[]):
                     name = _get(p, "backend", "service", "name")
                     if name:
-                        g.link(nid, g.ref("Service", name), f"{r.get('host') or '*'}{p.get('path', '')}")
+                        g.link(nid, g.ref("Service", name), f"{r.get('host') or '*'}{p.get('path', '')}", "traffic")
             if _get(backs[0], "name"):
-                g.link(nid, g.ref("Service", backs[0]["name"]), "default")
+                g.link(nid, g.ref("Service", backs[0]["name"]), "default", "traffic")
         elif kind == "HorizontalPodAutoscaler":
             t = spec.get("scaleTargetRef") or {}
             if t.get("kind") and t.get("name"):
@@ -281,31 +282,34 @@ def _compose(g: Graph, path: str, text: str, data: dict) -> None:
             summary.append(["ports", ", ".join(str(p) for p in svc["ports"])])
         g.add(f"{path}|svc|{name}", "compose", str(name), file=path, editable=name in blocks, summary=summary,
               text=_dedent("".join(lines[s:e]), child) if name in blocks else "", rank=0)
+    vols: dict[str, list[str]] = {}
     for name, svc in services.items():
         svc = svc if isinstance(svc, dict) else {}
         deps = svc.get("depends_on") or []
         for d in (deps.keys() if isinstance(deps, dict) else deps):
             if f"{path}|svc|{d}" in g.nodes:
-                g.link(f"{path}|svc|{name}", f"{path}|svc|{d}", "depends_on")
+                # 화살표는 켜지는 순서대로: 의존 대상(먼저) → 이 서비스(나중)
+                g.link(f"{path}|svc|{d}", f"{path}|svc|{name}", "먼저", "start")
         for v in svc.get("volumes") or []:
             src = v.get("source") if isinstance(v, dict) else str(v).split(":")[0]
             if src and isinstance(data.get("volumes"), dict) and src in data["volumes"]:
                 vid = f"{path}|vol|{src}"
                 if vid not in g.nodes:
                     g.add(vid, "volume", src, file=path, editable=False)
-                g.link(f"{path}|svc|{name}", vid, "volume")
-    # 의존 깊이로 열을 정한다: 다른 서비스가 기대는 서비스가 오른쪽
+                g.link(vid, f"{path}|svc|{name}", "volume")
+                vols.setdefault(vid, []).append(f"{path}|svc|{name}")
+    # 열: 먼저 켜지는 서비스가 왼쪽. 볼륨은 그것을 쓰는 서비스 바로 왼쪽
     ids = [f"{path}|svc|{n}" for n in services]
     depth = {i: 0 for i in ids}
     for _ in range(len(ids)):
         for e in g.edges:
-            if e["from"] in depth and e["to"] in depth and depth[e["to"]] < depth[e["from"]] + 1:
+            if e["kind"] == "start" and e["from"] in depth and e["to"] in depth and depth[e["to"]] < depth[e["from"]] + 1:
                 depth[e["to"]] = depth[e["from"]] + 1
+    shift = 1 if vols else 0
     for i, d in depth.items():
-        g.nodes[i]["rank"] = d
-    for nid, n in g.nodes.items():
-        if n["kind"] == "volume" and n.get("file") == path:
-            n["rank"] = max(depth.values(), default=0) + 1
+        g.nodes[i]["rank"] = d + shift
+    for vid, users in vols.items():
+        g.nodes[vid]["rank"] = min(depth[u] for u in users) + shift - 1
 
 
 def analyze(sources: dict[str, str]) -> dict:
