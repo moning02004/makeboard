@@ -12,7 +12,9 @@ export function CopyBox({ text, children }: { text: string; children: ReactNode 
     <div className="relative group/copy">
       {children}
       <button type="button" onClick={copy} aria-label="복사" title={done === 'fail' ? '복사하지 못했습니다. 직접 선택하세요' : '복사'}
-        className={`absolute top-2 right-3 w-8 h-8 grid place-items-center rounded-lg bg-panel/90 border border-line [box-shadow:var(--card-shadow)]
+        // 마우스가 있는 기기(PC)는 내용 위에 올렸을 때만, 터치 기기는 늘 보인다. 키보드 이동·복사 직후에는 보인다
+        className={`absolute top-2 right-3 w-8 h-8 grid place-items-center rounded-lg bg-panel/90 border border-line [box-shadow:var(--card-shadow)] transition-opacity
+          ${done ? 'opacity-100' : '[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/copy:opacity-100 focus-visible:opacity-100'}
           ${done === 'ok' ? 'text-ok' : done === 'fail' ? 'text-fail' : 'text-muted hover:text-fg'}`}>
         <Icon name={done === 'ok' ? 'check' : 'copy'} size={15} sw={2} />
       </button>
