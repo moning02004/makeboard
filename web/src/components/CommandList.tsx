@@ -119,7 +119,9 @@ export const CommandList = forwardRef<ListHandle, Props>(function CommandList(p,
   // 복합 명령어(여러 명령을 묶은 것)는 따로 맨 위에 모은다
   const comps = m.order.filter((n) => m.nodes[n].kind === 'comp')
   return (
-    <div className="flex-1 min-w-0 overflow-auto scroll-thin" aria-label="명령어 목록">
+    <div className="flex-1 min-w-0 overflow-auto scroll-thin" aria-label="명령어 목록"
+      // 카드·버튼이 아닌 빈 곳을 누르면 선택을 풀어 오른쪽 패널을 닫는다
+      onClick={(e) => { if (p.selected && !(e.target as HTMLElement).closest('[role=button], button, a, input')) p.onSelect(null) }}>
       <div className={`px-3 lg:pl-1 pt-1 pb-6 flex flex-col gap-6 ${p.panelOpen ? 'sm:pr-[428px]' : 'lg:pr-3.5'}`}>
         {favs.length > 0 && (
           <section aria-label="즐겨찾기">
