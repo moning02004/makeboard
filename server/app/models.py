@@ -141,3 +141,19 @@ class RunLog(Base):
     node: Mapped[str] = mapped_column(String(128), default="")
     stream: Mapped[str] = mapped_column(String(8), default="out")  # out | meta | err
     line: Mapped[str] = mapped_column(Text, default="")
+
+
+class FileRevision(Base):
+    """웹에서 고친 설정 파일(yaml)의 버전. 처음 고칠 때 원래 내용도 남겨서 언제든 되돌릴 수 있다."""
+
+    __tablename__ = "file_revisions"
+    __table_args__ = (Index("ix_file_revisions_service_path", "service_id", "path", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"))
+    path: Mapped[str] = mapped_column(String(512))
+    content: Mapped[str] = mapped_column(Text, default="")
+    sha: Mapped[str] = mapped_column(String(64), default="")
+    author: Mapped[str] = mapped_column(String(64), default="")
+    note: Mapped[str] = mapped_column(String(128), default="")  # 원래 내용 | 저장 | N번으로 되돌림
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

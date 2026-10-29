@@ -5,6 +5,7 @@ import type { Layout, Model, RunInfo, ServerWithServices, ServiceDetail } from '
 export interface Me { user: string; name: string; admin: boolean; edit: boolean; account: boolean; otp: { enabled: boolean; required: boolean; setup_required: boolean } }
 export type Role = 'run' | 'edit' | 'admin'
 export interface UserInfo { id: number; username: string; name: string; role: Role; admin: boolean; otp: boolean; created_at: string | null }
+export interface FileRev { id: number; sha: string; author: string; note: string; size?: number; created_at: string | null }
 export interface SettingInfo { value: string; env: string; saved: boolean; help: string }
 
 export class ApiError extends Error {
@@ -64,5 +65,12 @@ export const api = {
   settings: () => req<Record<string, SettingInfo>>('GET', '/api/settings'),
   // null 은 .env 값으로 되돌리기
   saveSettings: (changes: Record<string, string | null>) => req<Record<string, SettingInfo>>('PUT', '/api/settings', changes),
+  // 서비스 폴더의 yaml 파일 (에이전트 0.4.0 이상)
+  files: (id: number) => req<{ path: string; size: number }[]>('GET', `/api/services/${id}/files`),
+  file: (id: number, path: string) => req<{ path: string; content: string; sha: string; readonly: string | null }>('GET', `/api/services/${id}/files/content?path=${encodeURIComponent(path)}`),
+  saveFile: (id: number, path: string, content: string, sha: string) => req<{ sha: string; changed: boolean }>('PUT', `/api/services/${id}/files/content`, { path, content, sha }),
+  fileHistory: (id: number, path: string) => req<FileRev[]>('GET', `/api/services/${id}/files/history?path=${encodeURIComponent(path)}`),
+  fileRevision: (id: number, rev: number) => req<FileRev & { content: string }>('GET', `/api/services/${id}/files/history/${rev}`),
+  revertFile: (id: number, rev: number, sha: string) => req<{ sha: string; changed: boolean }>('POST', `/api/services/${id}/files/revert`, { rev_id: rev, sha }),
   stop: (runId: number) => req<{ ok: boolean }>('POST', `/api/runs/${runId}/stop`),
 }

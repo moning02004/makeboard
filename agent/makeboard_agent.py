@@ -30,12 +30,17 @@ import psutil
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/@+=%-]*$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 MAX_MAKEFILE = 1024 * 1024
+# 웹에서 보고 고칠 수 있는 설정 파일: 서비스 폴더와 바로 아래 하위 폴더의 yaml
+YAML_EXT = (".yaml", ".yml")
+MAX_FILE = 512 * 1024
+MAX_FILES = 200
+SKIP_DIRS = {"node_modules", "vendor", "__pycache__", "venv", ".venv"}
 # GNU make 가 찾는 순서. 없으면 Makefile 로 새로 만든다.
 MAKEFILE_NAMES = ("GNUmakefile", "makefile", "Makefile")
 COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
@@ -520,6 +525,12 @@ class Agent:
                 await self.write_makefile(msg)
             elif kind == "uninstall":
                 await self.uninstall(msg)
+            elif kind == "list_files":
+                await self.list_files(msg)
+            elif kind == "read_file":
+                await self.read_file(msg)
+            elif kind == "write_file":
+                await self.write_file(msg)
         except Exception as e:  # noqa: BLE001
             log.exception("%s 처리 중 오류", kind)
             if msg.get("req_id"):
@@ -588,6 +599,71 @@ class Agent:
                     os.chown(f, owner.st_uid, owner.st_gid)
         os.replace(tmp, path)
         log.info("Makefile 저장: %s", path)
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "sha": sha256(content)})
+
+    # ---- 설정 파일 (yaml)
+    def _project_file(self, project: str, rel: str) -> tuple[Path, Path]:
+        """서비스 폴더 안의 yaml 파일 경로. 폴더 밖(.., 절대 경로, 밖을 가리키는 링크)이나 yaml 이 아니면 거절한다."""
+        base = self.cfg.projects.get(project)
+        if base is None:
+            raise ValueError(f"등록되지 않은 프로젝트입니다: {project}")
+        rel_path = Path(rel)
+        if not rel or rel_path.is_absolute() or ".." in rel_path.parts or rel_path.suffix.lower() not in YAML_EXT \
+                or any(p.startswith(".") for p in rel_path.parts) or len(rel_path.parts) > 2:
+            raise ValueError(f"열 수 없는 파일입니다: {rel}")
+        root = base.resolve()
+        path = (root / rel_path).resolve()
+        if root not in path.parents:
+            raise ValueError(f"서비스 폴더 밖의 파일입니다: {rel}")
+        return root, path
+
+    async def list_files(self, msg: dict) -> None:
+        base = self.cfg.projects.get(str(msg.get("project")))
+        if base is None:
+            raise ValueError("등록되지 않은 프로젝트입니다")
+        root, files = base.resolve(), []
+        candidates = sorted(root.iterdir()) if root.is_dir() else []
+        for d in [c for c in candidates if c.is_dir() and not c.name.startswith(".") and c.name not in SKIP_DIRS]:
+            try:
+                candidates += sorted(d.iterdir())
+            except OSError:
+                continue
+        for f in candidates:
+            if len(files) >= MAX_FILES:
+                break
+            if f.suffix.lower() in YAML_EXT and f.is_file() and not f.name.startswith("."):
+                real = f.resolve()
+                if root in real.parents:
+                    files.append({"path": f.relative_to(root).as_posix(), "size": f.stat().st_size})
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "files": files})
+
+    async def read_file(self, msg: dict) -> None:
+        _, path = self._project_file(str(msg.get("project")), str(msg.get("path") or ""))
+        if not path.is_file():
+            raise ValueError("파일이 없습니다")
+        if path.stat().st_size > MAX_FILE:
+            raise ValueError("파일이 너무 큽니다 (512KB 초과)")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "content": text, "sha": sha256(text)})
+
+    async def write_file(self, msg: dict) -> None:
+        _, path = self._project_file(str(msg.get("project")), str(msg.get("path") or ""))
+        content = str(msg.get("content") or "")
+        if len(content.encode()) > MAX_FILE:
+            raise ValueError("파일이 너무 큽니다 (512KB 초과)")
+        current = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        if sha256(current) != msg.get("expected_sha"):
+            await self.send({"type": "reply", "req_id": msg["req_id"], "ok": False,
+                             "error": "서버의 파일이 그사이 바뀌었습니다. 다시 불러온 뒤 고치세요"})
+            return
+        owner = path.stat() if path.exists() else path.parent.stat()
+        tmp = path.with_name(f".{path.name}.makeboard.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.chmod(tmp, owner.st_mode & 0o777 if path.exists() else 0o644)
+        if os.geteuid() == 0:
+            os.chown(tmp, owner.st_uid, owner.st_gid)
+        os.replace(tmp, path)
+        log.info("파일 저장: %s", path)
         await self.send({"type": "reply", "req_id": msg["req_id"], "ok": True, "sha": sha256(content)})
 
     # ---- jobs

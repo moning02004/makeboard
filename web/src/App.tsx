@@ -16,7 +16,7 @@ import { ServerList } from './components/ServerList'
 import { ServiceUsage } from './components/ServiceUsage'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
-import { SourceModal } from './components/SourceModal'
+import { FilesModal } from './components/FilesModal'
 import { Icon } from './icons'
 import { deleteNode, upsertNode } from './model'
 import { useToast } from './toast'
@@ -296,7 +296,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <button type="button" onClick={() => setShowUsage((v) => { storage.set('mb:usage', v ? '0' : '1'); return !v })} aria-pressed={showUsage}
               className={`inline-flex h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
-          {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">Makefile</button>}
+          {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">파일</button>}
           {model && !model.readonly && me.edit && (
             <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
               <Icon name="plus" size={14} sw={2.4} />노드 추가
@@ -361,7 +361,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <NodeEditor model={model} seed={editor} onSave={saveNode} onDelete={removeNode} onClose={() => setEditor(null)} />
         </Modal>
       )}
-      {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><SourceModal service={detail} onSync={sync} onClose={() => setModal(null)} /></Modal>}
+      {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><FilesModal service={detail} canEdit={me.edit} onSync={sync} onClose={() => setModal(null)} /></Modal>}
       {modal === 'settings' && <Modal onClose={() => setModal(null)}>
         <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
       </Modal>}

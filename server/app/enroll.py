@@ -27,7 +27,7 @@ from .auth import require_admin, require_user
 from .config import settings
 from .db import SessionLocal
 from .hub import AgentOffline, hub
-from .models import AgentKey, Run, RunLog, RunStep, Server, Service
+from .models import AgentKey, FileRevision, Run, RunLog, RunStep, Server, Service
 
 router = APIRouter()
 Admin = Depends(require_admin)
@@ -210,6 +210,7 @@ async def delete_server(agent_id: str, uninstall: bool = False, user: str = Admi
         svc_ids = select(Service.id).where(Service.server_id == agent_id)
         run_ids = select(Run.id).where(Run.service_id.in_(svc_ids))
         # SQLite 는 외래 키 CASCADE 를 기본으로 켜지 않으므로 직접 지운다
+        await s.execute(delete(FileRevision).where(FileRevision.service_id.in_(svc_ids)))
         await s.execute(delete(RunLog).where(RunLog.run_id.in_(run_ids)))
         await s.execute(delete(RunStep).where(RunStep.run_id.in_(run_ids)))
         await s.execute(delete(Run).where(Run.service_id.in_(svc_ids)))

@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent_ws, api, auth, enroll, prefs, runner
+from . import agent_ws, api, auth, enroll, files, prefs, runner
 from .config import settings
 from .db import init_db
 
@@ -29,6 +29,7 @@ app = FastAPI(title="Makeboard", lifespan=lifespan, docs_url="/api/docs", openap
 app.include_router(api.router)
 app.include_router(agent_ws.router)
 app.include_router(enroll.router)
+app.include_router(files.router)
 
 
 @app.get("/healthz")

@@ -5,3 +5,4 @@ asyncpg==0.30.0
 aiosqlite==0.20.0
 pydantic-settings==2.7.1
 segno==1.6.1
+PyYAML==6.0.2
