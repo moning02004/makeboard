@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } 
 import { api, type Me, type TopoNode, type Topology } from '../api'
 import { editorKeyDown } from '../editorKeys'
 import { AddNode } from './AddNode'
+import { CopyBox } from './CopyBox'
 import { Modal } from './Modal'
 import { SecretKeys } from './SecretKeys'
 import { Select } from './Select'
@@ -404,12 +405,12 @@ function NodePanel({ node, topo, serviceId, canEdit, me, onSelect, onClose, onSa
         ) : node.text !== undefined && (
           <section className="flex flex-col gap-1.5 min-h-0">
             <h4 className="text-[12px] font-medium text-faint">{node.kind === 'Dockerfile' ? 'Dockerfile' : 'yaml'} {node.readonly && <span className="text-warn font-normal">· {node.readonly}</span>}</h4>
-            {editable
+            <CopyBox text={editable ? text : node.text ?? ''}>{editable
               ? <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={`${node.name} yaml`}
                   placeholder={node.kind === 'Dockerfile' ? 'FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nCMD ["python", "main.py"]' : undefined}
                   onKeyDown={(e) => editorKeyDown(e, setText, () => { if (dirty && !busy) void save(text) })}
-                  className="w-full h-[320px] rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
-              : <pre className="rounded-xl bg-hover p-3.5 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[360px]">{node.text || '(내용 없음)'}</pre>}
+                  className="block w-full h-[320px] rounded-xl bg-hover p-3.5 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin outline-none border border-transparent focus:border-accent resize-y" />
+              : <pre className="rounded-xl bg-hover p-3.5 pr-14 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[360px]">{node.text || '(내용 없음)'}</pre>}</CopyBox>
           </section>
         )}
         {error && <p role="alert" className="text-[13px] text-fail whitespace-pre-wrap">{error}</p>}
