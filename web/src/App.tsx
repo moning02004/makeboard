@@ -332,7 +332,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : !svcId && curServer ? (
             <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
           ) : svcId && detail && view === 'topo' ? (
-            <TopologyView serviceId={svcId} canEdit={me.edit} onToast={toast} />
+            <TopologyView serviceId={svcId} me={me} onToast={toast} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}

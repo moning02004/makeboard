@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { api, type TopoNode, type Topology } from '../api'
+import { api, type Me, type TopoNode, type Topology } from '../api'
 import { editorKeyDown } from '../editorKeys'
+import { AddNode } from './AddNode'
+import { Modal } from './Modal'
 import { Icon } from '../icons'
 
 // 카드 크기와 간격 (px)
@@ -67,7 +69,9 @@ function place(t: Topology, auto: Map<string, { x: number; y: number }>, saved: 
 }
 
 /** 서비스 폴더의 compose·쿠버네티스 yaml 구성도. 노드를 누르면 오른쪽 패널에서 그 리소스의 yaml 을 보고 고치거나 지운다 */
-export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: number; canEdit: boolean; onToast: (m: string) => void }) {
+export function TopologyView({ serviceId, me, onToast }: { serviceId: number; me: Me; onToast: (m: string) => void }) {
+  const canEdit = me.edit
+  const [adding, setAdding] = useState(false)
   const [topo, setTopo] = useState<Topology | null>(null)
   const [error, setError] = useState('')
   const [sel, setSel] = useState<string | null>(null)
@@ -162,7 +166,10 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
       <div className="flex flex-col gap-1.5">
         <p className="text-[15px] font-medium">구성을 그릴 yaml이 없습니다</p>
         <p className="text-[13px] text-muted">docker-compose.yml 이나 쿠버네티스 yaml 을 서비스 폴더에 두면 여기에 나타납니다.</p>
+        {canEdit && <button type="button" onClick={() => setAdding(true)} className="mt-2 self-center h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">+ 노드 추가</button>}
       </div>
+      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={topo} onClose={() => setAdding(false)}
+        onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
     </div>
   )
 
@@ -231,6 +238,14 @@ export function TopologyView({ serviceId, canEdit, onToast }: { serviceId: numbe
           })}
         </div>
       </div>
+
+      {canEdit && (
+        <button type="button" onClick={() => setAdding(true)}
+          className="absolute right-4 bottom-3 h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold inline-flex items-center gap-1.5 hover:brightness-110 shadow-lg">
+          <Icon name="plus" size={14} sw={2.4} />노드 추가</button>
+      )}
+      {adding && <Modal onClose={() => setAdding(false)}><AddNode serviceId={serviceId} me={me} topo={topo} onClose={() => setAdding(false)}
+        onDone={(msg, keep) => { setAdding(false); onToast(msg); void load(keep) }} /></Modal>}
 
       <div className="absolute left-3 bottom-3 flex items-center gap-2">
         <button type="button" onClick={() => void load(node ? { kind: node.kind, name: node.name } : undefined)}
