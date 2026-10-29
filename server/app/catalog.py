@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, files
 from .auth import require_editor, require_user
-from .topology import _blank_or_comment, _build_path, _indent, _lines, _reindent, block_body, compose_blocks, replace_block
+from .topology import _blank_or_comment, _indent, _lines, _reindent, block_body, compose_blocks, replace_block
 
 router = APIRouter(prefix="/api")
 Member = Depends(require_user)
@@ -57,35 +57,9 @@ def _dump(data: Any) -> str:
     return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
-# '직접 입력'을 Dockerfile 로 빌드할 때, 폴더에 Dockerfile 이 없으면 만들어 줄 기본 내용
-DOCKERFILES: dict[str, dict[str, str]] = {
-    "python": {"name": "Python", "port": "8000", "content": """FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 8000
-CMD ["python", "main.py"]
-"""},
-    "node": {"name": "Node.js", "port": "3000", "content": """FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY . .
-EXPOSE 3000
-CMD ["node", "index.js"]
-"""},
-    "static": {"name": "정적 웹 (nginx)", "port": "80", "content": """FROM nginx:1.27-alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
-"""},
-}
-
-
 @router.get("/catalog")
 async def catalog(user: str = Member) -> dict:
-    return {"items": [{k: c[k] for k in ("id", "name", "description", "image", "port", "password")} for c in CATALOG],
-            "dockerfiles": [{"id": k, "name": v["name"], "port": int(v["port"])} for k, v in DOCKERFILES.items()]}
+    return {"items": [{k: c[k] for k in ("id", "name", "description", "image", "port", "password")} for c in CATALOG]}
 
 
 # ------------------------------------------------------------------ compose
@@ -233,8 +207,7 @@ class AddIn(BaseModel):
     item: str
     name: str
     image: str = ""
-    build: str = ""  # compose 파일 기준 빌드 폴더 (예: ./api). '직접 입력'에서만
-    dockerfile: str = ""  # 그 폴더에 Dockerfile 이 없으면 이 템플릿으로 만든다 (python | node | static)
+    build: str = ""  # compose 파일 기준 빌드 폴더 (예: ./api). '직접 입력'에서만, 그 폴더의 Dockerfile 로 빌드
     port: int | None = None
     password: str = ""  # 비우면 자동 생성
     target: str  # 'compose:<파일>' | 'k8s:<새 파일 경로>'
@@ -254,8 +227,6 @@ async def add_node(service_id: int, body: AddIn, request: Request, user: str = E
         raise HTTPException(422, "빌드 폴더는 compose 파일 기준 상대 경로로 씁니다 (예: ./api)")
     if (image or not build) and not IMAGE_RE.match(image):
         raise HTTPException(422, "이미지를 입력하세요 (예: redis:7)")
-    if body.dockerfile and body.dockerfile not in DOCKERFILES:
-        raise HTTPException(422, "없는 Dockerfile 템플릿입니다")
     port = body.port if body.port is not None else item.get("port")
     if port is not None and not 0 < port < 65536:
         raise HTTPException(422, "포트가 올바르지 않습니다")
@@ -286,16 +257,6 @@ async def add_node(service_id: int, body: AddIn, request: Request, user: str = E
         raise HTTPException(422, "넣을 곳을 고르세요")
     if files.yaml_error(new):
         raise HTTPException(422, files.yaml_error(new))
-    # 빌드 폴더에 Dockerfile 이 없으면 템플릿으로 만든다 (있으면 그대로 둔다)
-    dockerfile = _build_path(path, build) if build else None
-    if dockerfile and body.dockerfile:
-        await files._service(service_id, (0, 6, 0))
-        try:
-            existing = await files._read(svc, dockerfile)
-        except HTTPException:
-            existing = None
-        if existing is None:
-            await files._write(svc, dockerfile, "", DOCKERFILES[body.dockerfile]["content"], user, f"{name} Dockerfile 만들기")
     await files._write(svc, path, current, new, user, f"{item['name']} {name} 추가")
     if kind == "compose" and password:
         env_key = _env_name(name)

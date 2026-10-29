@@ -10,11 +10,9 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   serviceId: number; me: Me; topo: Topology; onDone: (msg: string, node: { kind: string; name: string }) => void; onClose: () => void
 }) {
   const [items, setItems] = useState<CatalogItem[]>([])
-  const [dockerfiles, setDockerfiles] = useState<{ id: string; name: string; port: number }[]>([])
   // '직접 입력'은 이미지 대신 Dockerfile 로 빌드할 수 있다 (compose 만)
   const [useBuild, setUseBuild] = useState(false)
   const [buildDir, setBuildDir] = useState('')
-  const [dfTemplate, setDfTemplate] = useState('')
   const [port, setPort] = useState('')
   const [itemId, setItemId] = useState('redis')
   const [name, setName] = useState('redis')
@@ -27,7 +25,7 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
   const [reauth, setReauth] = useState(false)
   const [code, setCode] = useState('')
 
-  useEffect(() => { api.catalog().then((c) => { setItems(c.items); setDockerfiles(c.dockerfiles) }).catch((e) => setError((e as Error).message)) }, [])
+  useEffect(() => { api.catalog().then((c) => setItems(c.items)).catch((e) => setError((e as Error).message)) }, [])
   const item = items.find((i) => i.id === itemId)
   useEffect(() => {
     if (!item) return
@@ -64,7 +62,7 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
     try {
       const r = await api.addNode(serviceId, {
         item: itemId, name: name.trim(), image: image.trim(), password,
-        build: building ? (buildDir.trim() || `./${name.trim()}`) : '', dockerfile: building ? dfTemplate : '',
+        build: building ? (buildDir.trim() || `./${name.trim()}`) : '',
         port: itemId === 'custom' && port.trim() ? Number(port) : null,
         target: isCompose ? target : `k8s:${k8sDir}${name.trim()}.yaml`, connect: isCompose ? connect : [],
       })
@@ -126,17 +124,9 @@ export function AddNode({ serviceId, me, topo, onDone, onClose }: {
               ))}
             </div>
             {useBuild && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1.5 text-[12px] text-muted">빌드 폴더 <span className="text-faint">compose 파일 기준</span>
-                  <input className={inp} value={buildDir} onChange={(e) => setBuildDir(e.target.value)} spellCheck={false} autoComplete="off" placeholder={`./${name || 'app'}`} />
-                </label>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[12px] text-muted">Dockerfile <span className="text-faint">없으면 만들기</span></span>
-                  <Select label="Dockerfile 템플릿" value={dfTemplate} onChange={(v) => { setDfTemplate(v); const d = dockerfiles.find((x) => x.id === v); if (d && !port) setPort(String(d.port)) }}
-                    options={[{ value: '', label: '이미 있음', description: '폴더의 Dockerfile 을 그대로 씁니다' },
-                      ...dockerfiles.map((d) => ({ value: d.id, label: d.name, description: '없으면 이 템플릿으로 만듭니다' }))]} />
-                </div>
-              </div>
+              <label className="flex flex-col gap-1.5 text-[12px] text-muted">빌드 폴더 <span className="text-faint">compose 파일 기준 · 그 폴더의 Dockerfile 로 빌드</span>
+                <input className={inp} value={buildDir} onChange={(e) => setBuildDir(e.target.value)} spellCheck={false} autoComplete="off" placeholder={`./${name || 'app'}`} />
+              </label>
             )}
             <label className="flex flex-col gap-1.5 text-[12px] text-muted sm:w-1/2">포트 <span className="text-faint">선택</span>
               <input className={inp} value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="8000" />
