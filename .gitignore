@@ -8,3 +8,5 @@ web/dist/
 Makefile.makeboard.bak
 .DS_Store
 .idea/
+docs/
+Makefile
