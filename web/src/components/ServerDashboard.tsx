@@ -39,7 +39,7 @@ function storageGet(k: string) { try { return localStorage.getItem(k) } catch { 
 function storageSet(k: string, v: string) { try { localStorage.setItem(k, v) } catch { /* 저장 불가 환경 */ } }
 
 // 서버를 누르면 가운데에 나오는 화면: 리소스 사용량과 서비스 목록
-export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWithServices; onOpen: (id: number) => void; onEdit?: () => void }) {
+export function ServerDashboard({ server, onOpen }: { server: ServerWithServices; onOpen: (id: number) => void }) {
   const [onlyRunning, setOnlyRunning] = useState(() => storageGet('mb:onlyRunning') === '1')
   const m = server.metrics || {}
 
@@ -83,12 +83,6 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
             {[server.hostname, m.uptime ? `가동 ${uptime(m.uptime)}` : '', server.version ? `에이전트 ${server.version}` : ''].filter(Boolean).join(' · ')}
           </span>
           <span className="ml-auto flex items-center gap-2">
-          {onEdit && !server.pending && server.managed !== false && (
-            <button type="button" onClick={onEdit} title="서비스 폴더·쿠버네티스 설정을 바꾸거나 에이전트를 최신으로 업데이트합니다"
-              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">
-              <Icon name="edit" size={13} sw={2} />편집
-            </button>
-          )}
           {server.beszel_url && (
             <a href={server.beszel_url} target="_blank" rel="noopener noreferrer" title="Beszel에서 이 서버의 상태 보기"
               className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">

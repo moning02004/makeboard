@@ -314,7 +314,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {!svcId && !curServer && servers.length > 0 ? (
             <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
-            <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
+            <ServerDashboard server={curServer} onOpen={openService} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
