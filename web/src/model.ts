@@ -86,7 +86,7 @@ export function paramsOf(m: Model, n: string, seen = new Set<string>()): Param[]
   const add = (p: Param) => { if (!out.has(p.name)) out.set(p.name, p) }
   const vars = varMap(m)
   if (nd.kind === 'cmd') {
-    for (const mm of (nd.cmds || []).join('\n').matchAll(/\$[({]([A-Za-z_][A-Za-z0-9_]*)[)}]/g)) {
+    for (const mm of (nd.cmds || []).join('\n').matchAll(/(?<!\$)\$[({]([A-Za-z_][A-Za-z0-9_]*)[)}]/g)) {
       const v = mm[1]
       if (BUILTIN.has(v)) continue
       const o = vars[v]
