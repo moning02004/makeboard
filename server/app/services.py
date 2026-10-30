@@ -72,9 +72,15 @@ async def upsert_agent(agent_id: str, hello: dict) -> list[str]:
         for name, path in projects:
             svc = existing.get(name)
             if svc:
-                svc.path = path
+                svc.path, svc.removed_at = path, None
             else:
                 s.add(Service(server_id=agent_id, name=name, path=path, layout={}))
+        # 목록에서 빠진 서비스는 숨긴다. 목록이 통째로 비면(마운트 실수 등) 일시적인 문제일 수 있어 그대로 둔다
+        if projects:
+            reported = {n for n, _ in projects}
+            for name, svc in existing.items():
+                if name not in reported and svc.removed_at is None:
+                    svc.removed_at = utcnow()
         await s.commit()
     return [n for n, _ in projects]
 
