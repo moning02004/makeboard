@@ -20,6 +20,8 @@ async def lifespan(app: FastAPI):
     await runner.mark_interrupted_runs()
     await prefs.load()
     await auth.ensure_admin()
+    if not settings.otp_required:
+        log.warning("MAKEBOARD_OTP_REQUIRED=false: 관리자·편집자에게 2단계 인증을 강제하지 않습니다. 운영에서는 쓰지 마세요.")
     if len(settings.admin_token) < 16:
         log.warning("MAKEBOARD_ADMIN_TOKEN 이 너무 짧습니다. `openssl rand -hex 32` 로 만든 값을 쓰세요.")
     yield

@@ -3,6 +3,7 @@ import { TYPE_LABEL, argStr, expand, helpLines, nodeMake, paramsOf, typeOf, used
 import type { Model, RunInfo, ServiceDetail, StepStatus } from '../types'
 import type { RunState } from '../useRunStream'
 import { LogView } from './LogView'
+import { Select } from './Select'
 
 const STEP_LABEL: Record<StepStatus, string> = { queued: '대기', running: '실행 중', ok: '완료', failed: '실패', stopped: '중지', skipped: '건너뜀' }
 const RUN_LABEL = { running: '실행 중', ok: '성공', failed: '실패', stopped: '중지' }
@@ -238,14 +239,10 @@ export function Panel(p: PanelProps) {
           <>
             <span className="flex-1 min-w-2" />
             {p.runs.length > 0 && (
-              <select aria-label="실행 기록" value={s?.id ?? ''} onChange={(e) => p.onViewRun(Number(e.target.value))}
-                className="h-7 min-w-0 max-w-[180px] px-2.5 rounded-full bg-hover text-[12px] text-muted outline-none">
-                {p.runs.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    #{r.id} {r.target} · {RUN_LABEL[r.status]} · {r.started_at ? new Date(r.started_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </option>
-                ))}
-              </select>
+              <Select label="실행 기록" variant="pill" className="min-w-0 max-w-[180px]" value={String(s?.id ?? '')}
+                onChange={(v) => p.onViewRun(Number(v))}
+                options={p.runs.map((r) => ({ value: String(r.id),
+                  label: `#${r.id} ${r.target} · ${RUN_LABEL[r.status]} · ${r.started_at ? new Date(r.started_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ''}` }))} />
             )}
             <button type="button" onClick={p.onWrap} aria-pressed={p.wrap}
               className={`h-7 px-3 rounded-full text-[12px] whitespace-nowrap flex-none ${p.wrap ? 'bg-accentsoft text-accent' : 'text-muted hover:bg-hover hover:text-fg'}`}>줄바꿈</button>

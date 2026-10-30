@@ -47,8 +47,8 @@ class CurrentUser:
 
     @property
     def otp_required(self) -> bool:
-        """관리자와 편집자는 2단계 인증이 필수다."""
-        return self.id is not None and self.editor
+        """관리자와 편집자는 2단계 인증이 필수다 (MAKEBOARD_OTP_REQUIRED=false 면 선택)."""
+        return self.id is not None and self.editor and settings.otp_required
 
     @property
     def otp_setup_required(self) -> bool:

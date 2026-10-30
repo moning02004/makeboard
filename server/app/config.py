@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # 처음 시작할 때(사용자가 아무도 없을 때) 만들 관리자 계정. 비밀번호를 비우면 admin_token 을 쓴다.
     admin_user: str = "admin"
     admin_password: str = ""
+    # 관리자·편집자에게 2단계 인증을 강제할지. 로컬 확인·개발에서만 false 로 두세요.
+    otp_required: bool = True
     # 에이전트별 토큰: "prod-app-01:토큰1,dev-01:토큰2"
     agent_tokens: str = ""
     database_url: str = "sqlite+aiosqlite:///./makeboard.db"
