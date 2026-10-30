@@ -57,9 +57,10 @@ export function ServerDashboard({ server, onOpen }: { server: ServerWithServices
   })
   const pickSort = (k: SortKey) => { setSortBy(k); storageSet('mb:sort', k) }
   const withUsage = server.services.filter((v) => v.status?.usage)
-  // 막대의 끝: CPU 는 서버 전체 대비 %로 최소 10%(가장 큰 값까지), 메모리는 서버 전체 메모리, 디스크는 가장 큰 폴더(최소 1GB)
-  // 값이 작은 서비스가 막대를 꽉 채워 보이지 않도록 한다 (차트 축과 같은 기준)
-  const topCpu = Math.max(10, ...withUsage.map((v) => v.status!.usage!.cpu))
+  // 막대의 끝: CPU 는 가장 바쁜 서비스의 1.5배를 10% 단위로 올림(20~100%. 예: 40% → 60%), 메모리는 서버 전체 메모리, 디스크는 가장 큰 폴더(최소 1GB)
+  // 가장 큰 서비스도 막대를 꽉 채우지 않게 여유를 둔다
+  const maxCpu = Math.max(0, ...withUsage.map((v) => v.status!.usage!.cpu))
+  const topCpu = Math.max(maxCpu, Math.min(100, Math.max(20, Math.ceil((maxCpu * 1.5) / 10) * 10)))
   const topMem = m.mem_total || Math.max(1, ...withUsage.map((v) => v.status!.usage!.mem))
   const topDisk = Math.max(1024 ** 3, ...server.services.map((v) => v.disk ?? 0))
   const valueOf = (v: ServiceItem, k: SortKey) => (k === 'disk' ? v.disk : k === 'name' ? null : v.status?.usage?.[k]) ?? -1
