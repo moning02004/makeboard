@@ -218,3 +218,24 @@ async def test_reinstall_and_kubeconfig(client):
     assert "KUBECONFIG" not in r.json()["command"]
     assert (await client.get("/api/servers/srv-1/install", headers=AUTH)).json()["kubeconfig"] == ""
 
+
+
+async def test_otp_required_can_be_turned_off_for_local(client):
+    """MAKEBOARD_OTP_REQUIRED=false 면 관리자도 2단계 인증 설정 없이 들어간다 (로컬 확인용)"""
+    from app.auth import hash_password
+    from app.config import settings
+    from app.models import User
+
+    async with SessionLocal() as s:
+        s.add(User(username="boss", password_hash=hash_password("boss-password"), is_admin=True))
+        await s.commit()
+    client.cookies.clear()
+    await client.post("/api/login", json={"username": "boss", "password": "boss-password"})
+    assert (await client.get("/api/me")).json()["otp"]["setup_required"] is True
+    settings.otp_required = False
+    try:
+        me = (await client.get("/api/me")).json()
+        assert me["otp"] == {"enabled": False, "required": False, "setup_required": False}
+    finally:
+        settings.otp_required = True
+        client.cookies.clear()
