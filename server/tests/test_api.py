@@ -208,6 +208,8 @@ async def test_reinstall_and_kubeconfig(client):
     assert r.status_code == 200
     cmd = r.json()["command"]
     assert "-v /home/ubuntu/.kube/config:/etc/makeboard/kubeconfig:ro" in cmd and "KUBECONFIG=/etc/makeboard/kubeconfig" in cmd
+    # 파일이 아니면 띄우기 전에 멈춘다
+    assert cmd.startswith("{ [ -f /home/ubuntu/.kube/config ] || ")
     r = await client.post("/api/agents", headers=AUTH, json={**body, "replace": True, "kubeconfig": "~/.kube/config"})
     assert r.status_code == 422
     # 편집 화면은 저장된 설치 값을 불러온다

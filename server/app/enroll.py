@@ -170,7 +170,10 @@ def docker_command(url: str, name: str, token: str, environment: str, scan: list
            "-e KUBECACHEDIR=/tmp/.kube-cache"] if kubeconfig else []),
         f"-e MAKEBOARD_SCAN={q(':'.join(scan))}", f"-e MAKEBOARD_CONTAINER={CONTAINER}", CONTAINER,
     ]
-    return (f"docker build -t {CONTAINER} {q(url + '/agent/docker.tar.gz')} && "
+    # kubeconfig 가 없거나 폴더면 docker 가 빈 폴더를 만들어 붙이므로, 띄우기 전에 멈춘다 (셸을 닫지 않게 exit 대신 false)
+    check = (f"{{ [ -f {q(kubeconfig)} ] || {{ echo {q('kubeconfig 파일이 아닙니다 (없거나 폴더): ' + kubeconfig)} >&2; false; }}; }} && "
+             if kubeconfig else "")
+    return (f"{check}docker build -t {CONTAINER} {q(url + '/agent/docker.tar.gz')} && "
             f"{{ docker rm -f {CONTAINER} >/dev/null 2>&1; {' '.join(run)}; }}")
 
 
