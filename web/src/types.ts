@@ -48,7 +48,8 @@ export interface ServerBrief {
 
 export interface Container { name: string; service: string; state: string; health: string; status: string; cpu?: number; mem?: number }
 // cpu 는 서버 전체 대비 %, mem 은 바이트
-export interface ServiceStatus { kind: 'compose'; containers: Container[]; error: string | null; usage?: { cpu: number; mem: number } }
+// compose: 서비스 폴더의 docker compose, k8s: 폴더 이름(또는 Makefile 의 NAMESPACE)과 같은 네임스페이스의 파드
+export interface ServiceStatus { kind: 'compose' | 'k8s'; containers: Container[]; error: string | null; usage?: { cpu: number; mem: number } }
 
 export interface ServiceItem { id: number; name: string; path: string; node_count: number; sync_error: string; status: ServiceStatus | null; disk?: number | null }
 export interface ServerWithServices extends ServerBrief { services: ServiceItem[]; pending?: boolean }

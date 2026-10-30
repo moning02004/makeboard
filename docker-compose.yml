@@ -23,6 +23,8 @@ services:
     environment:
       MAKEBOARD_DATABASE_URL: postgresql+asyncpg://makeboard:${POSTGRES_PASSWORD}@db:5432/makeboard
       MAKEBOARD_ADMIN_TOKEN: ${MAKEBOARD_ADMIN_TOKEN:?required}
+      MAKEBOARD_ADMIN_USER: ${MAKEBOARD_ADMIN_USER:-admin}
+      MAKEBOARD_ADMIN_PASSWORD: ${MAKEBOARD_ADMIN_PASSWORD:-}
       MAKEBOARD_AGENT_TOKENS: ${MAKEBOARD_AGENT_TOKENS:-}
       MAKEBOARD_COOKIE_SECURE: ${MAKEBOARD_COOKIE_SECURE:-false}
       # 에이전트 설치 명령어에 들어갈 이 서버 주소 (예: http://10.0.0.5:8000, https://makeboard.example.com)

@@ -7,34 +7,81 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import prefs, runner, services
-from .auth import COOKIE, check_token, require_admin, session_value
+from . import auth, prefs, runner, services
+from .auth import COOKIE, require_admin, require_editor, require_user
 from .config import settings
 from .db import SessionLocal, get_session
 from .hub import AgentOffline, hub
 from .makefile import NAME_RE, VALUE_RE, VAR_RE, ModelError, to_makefile, validate_model
 from .templates import BY_ID as TEMPLATES_BY_ID, TEMPLATES
-from .models import AgentKey, Run, RunLog, RunStep, Server, Service, iso
+from .models import AgentKey, Run, RunLog, RunStep, Server, Service, User, iso
 
 router = APIRouter(prefix="/api")
-Admin = Depends(require_admin)
+Member = Depends(require_user)  # 로그인한 사용자 누구나
+Editor = Depends(require_editor)  # 편집자·관리자 (Makefile·yaml 수정)
+Admin = Depends(require_admin)  # 관리자만 (서버 추가·삭제, 설정, 사용자 관리)
 
 
-# ------------------------------------------------------------------ auth
+# ------------------------------------------------------------------ 로그인
 class LoginIn(BaseModel):
-    token: str
+    username: str
+    password: str
+
+
+class OtpLoginIn(BaseModel):
+    ticket: str
+    code: str
+
+
+def _set_session(response: Response, user: User) -> None:
+    response.set_cookie(COOKIE, auth.make_session(user), httponly=True, samesite="strict", secure=settings.cookie_secure,
+                        max_age=auth.SESSION_SECONDS)
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "-"
 
 
 @router.post("/login")
-async def login(body: LoginIn, response: Response) -> dict:
-    if not check_token(body.token):
-        raise HTTPException(401, "토큰이 올바르지 않습니다")
-    response.set_cookie(COOKIE, session_value(), httponly=True, samesite="strict", secure=settings.cookie_secure,
-                        max_age=60 * 60 * 24 * 14)
+async def login(body: LoginIn, request: Request, response: Response) -> dict:
+    """비밀번호 확인. 2단계 인증을 켠 계정이면 쿠키 대신 5분짜리 표(ticket)를 주고 /login/otp 에서 코드를 받는다."""
+    key = _client_key(request)
+    if not auth.login_allowed(key):
+        raise HTTPException(429, "로그인 실패가 많습니다. 10분 뒤에 다시 시도하세요")
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.username == body.username.strip()))).scalar_one_or_none()
+    # 없는 아이디여도 같은 시간이 걸리도록 비밀번호 확인은 항상 한다
+    ok = auth.verify_password(body.password, u.password_hash if u else auth.hash_password("-"))
+    if not (u and ok):
+        auth.login_failed(key)
+        raise HTTPException(401, "아이디 또는 비밀번호가 올바르지 않습니다")
+    if u.totp_secret:
+        return {"ok": False, "otp_required": True, "ticket": auth.make_ticket(u)}
+    auth.login_ok(key)
+    _set_session(response, u)
     return {"ok": True}
+
+
+@router.post("/login/otp")
+async def login_otp(body: OtpLoginIn, request: Request, response: Response) -> dict:
+    key = _client_key(request)
+    if not auth.login_allowed(key):
+        raise HTTPException(429, "로그인 실패가 많습니다. 10분 뒤에 다시 시도하세요")
+    t = auth.parse_ticket(body.ticket)
+    if not t:
+        raise HTTPException(401, "시간이 지났습니다. 처음부터 다시 로그인하세요")
+    async with SessionLocal() as s:
+        u = await s.get(User, t[0])
+        if not u or u.session_ver != t[1] or not auth.verify_second_factor(u, body.code):
+            auth.login_failed(key)
+            raise HTTPException(401, "인증 코드가 올바르지 않습니다")
+        await s.commit()  # 쓴 코드 기록
+        auth.login_ok(key)
+        _set_session(response, u)
+        return {"ok": True, "recovery_left": auth.recovery_left(u)}
 
 
 @router.post("/logout")
@@ -44,8 +91,197 @@ async def logout(response: Response) -> dict:
 
 
 @router.get("/me")
-async def me(user: str = Admin) -> dict:
-    return {"user": user}
+async def me(request: Request) -> dict:
+    u = await auth.current_user(request, allow_setup=True)
+    return {"user": u.username, "name": u.name or u.username, "admin": u.is_admin, "edit": u.editor, "account": u.id is not None,
+            "otp": {"enabled": u.otp_enabled, "required": u.otp_required, "setup_required": u.otp_setup_required}}
+
+
+class PasswordIn(BaseModel):
+    current: str
+    new: str
+
+
+async def _my_account(request: Request) -> auth.CurrentUser:
+    cur = await auth.current_user(request, allow_setup=True)
+    if cur.id is None:
+        raise HTTPException(409, "관리자 토큰으로는 할 수 없습니다. 계정으로 로그인하세요")
+    return cur
+
+
+@router.put("/me/password")
+async def change_my_password(body: PasswordIn, request: Request, response: Response) -> dict:
+    cur = await _my_account(request)
+    auth.check_password_rules(None, body.new)
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        if not u or not auth.verify_password(body.current, u.password_hash):
+            raise HTTPException(422, "현재 비밀번호가 올바르지 않습니다")
+        u.password_hash = auth.hash_password(body.new)
+        u.session_ver += 1  # 다른 기기의 로그인은 끊고, 이 기기는 새 쿠키로 이어간다
+        await s.commit()
+        _set_session(response, u)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ 2단계 인증 등록·해제
+class CodeIn(BaseModel):
+    code: str
+
+
+@router.post("/me/otp/setup")
+async def otp_setup(request: Request) -> dict:
+    """새 비밀값을 만들어 QR 로 보여 준다. 코드를 한 번 맞혀야(/enable) 켜진다."""
+    import segno  # 등록할 때만 쓴다
+
+    cur = await _my_account(request)
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        u.totp_pending = auth.new_otp_secret()
+        await s.commit()
+        uri = auth.otp_uri(u.totp_pending, u.username)
+        return {"secret": u.totp_pending, "uri": uri, "qr": segno.make(uri, error="m").svg_data_uri(scale=5, border=2)}
+
+
+@router.post("/me/otp/enable")
+async def otp_enable(body: CodeIn, request: Request, response: Response) -> dict:
+    cur = await _my_account(request)
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        step = auth.check_otp(u.totp_pending, body.code) if u.totp_pending else None
+        if step is None:
+            raise HTTPException(422, "코드가 맞지 않습니다. 앱에 보이는 6자리를 다시 입력하세요")
+        u.totp_secret, u.totp_pending, u.totp_last_step = u.totp_pending, "", step
+        codes = auth.new_recovery_codes(u)
+        u.session_ver += 1  # 다른 기기의 로그인은 끊는다 (그쪽은 2단계 인증 없이 들어온 세션)
+        await s.commit()
+        _set_session(response, u)
+    return {"recovery_codes": codes}
+
+
+@router.post("/me/otp/disable")
+async def otp_disable(body: CodeIn, request: Request) -> dict:
+    cur = await _my_account(request)
+    if cur.otp_required:
+        raise HTTPException(409, "관리자와 편집자는 2단계 인증을 끌 수 없습니다")
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        if not auth.verify_second_factor(u, body.code):
+            raise HTTPException(422, "인증 코드가 올바르지 않습니다")
+        u.totp_secret, u.recovery_codes = "", ""
+        await s.commit()
+    return {"ok": True}
+
+
+@router.post("/me/otp/recovery")
+async def otp_new_recovery(body: CodeIn, request: Request) -> dict:
+    """복구 코드를 새로 만든다 (이전 코드는 모두 무효)."""
+    cur = await _my_account(request)
+    async with SessionLocal() as s:
+        u = await s.get(User, cur.id)
+        if not u.totp_secret or not auth.verify_second_factor(u, body.code):
+            raise HTTPException(422, "인증 코드가 올바르지 않습니다")
+        codes = auth.new_recovery_codes(u)
+        await s.commit()
+    return {"recovery_codes": codes}
+
+
+# ------------------------------------------------------------------ 사용자 관리 (관리자)
+ROLES = ("run", "edit", "admin")
+
+
+def _user_dict(u: User) -> dict:
+    return {"id": u.id, "username": u.username, "name": u.name or "", "role": auth.role_of(u), "admin": bool(u.is_admin),
+            "otp": bool(u.totp_secret), "created_at": iso(u.created_at)}
+
+
+class UserIn(BaseModel):
+    username: str
+    password: str
+    name: str = ""
+    role: str = "run"  # run: 보기·실행, edit: + Makefile·yaml 편집, admin: + 서버·사용자·설정
+
+
+class UserPatch(BaseModel):
+    password: str | None = None
+    name: str | None = None
+    role: str | None = None
+    reset_otp: bool = False
+
+
+async def _admin_count(s: AsyncSession) -> int:
+    return (await s.execute(select(func.count()).select_from(User).where(User.is_admin.is_(True)))).scalar_one()
+
+
+def _check_role(role: str) -> None:
+    if role not in ROLES:
+        raise HTTPException(422, "권한은 run, edit, admin 중 하나입니다")
+
+
+@router.get("/users")
+async def list_users(user: str = Admin, s: AsyncSession = Depends(get_session)) -> list[dict]:
+    return [_user_dict(u) for u in (await s.execute(select(User).order_by(User.id))).scalars()]
+
+
+@router.post("/users")
+async def create_user(body: UserIn, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+    name = body.username.strip()
+    auth.check_password_rules(name, body.password)
+    _check_role(body.role)
+    if (await s.execute(select(User.id).where(User.username == name))).first():
+        raise HTTPException(409, f"'{name}' 아이디가 이미 있습니다")
+    u = User(username=name, name=body.name.strip()[:64], password_hash=auth.hash_password(body.password),
+             is_admin=body.role == "admin", can_edit=body.role == "edit")
+    s.add(u)
+    await s.commit()
+    return _user_dict(u)
+
+
+@router.put("/users/{user_id}")
+async def update_user(user_id: int, body: UserPatch, request: Request, s: AsyncSession = Depends(get_session)) -> dict:
+    me_ = await auth.current_user(request)
+    if not me_.is_admin:
+        raise HTTPException(403, "관리자만 할 수 있습니다")
+    u = await s.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "사용자를 찾을 수 없습니다")
+    if body.name is not None:
+        u.name = body.name.strip()[:64]
+    if body.password is not None:
+        auth.check_password_rules(None, body.password)
+        u.password_hash = auth.hash_password(body.password)
+        u.session_ver += 1
+    if body.role is not None and body.role != auth.role_of(u):
+        _check_role(body.role)
+        if u.is_admin and body.role != "admin":
+            if await _admin_count(s) <= 1:
+                raise HTTPException(409, "관리자가 한 명은 있어야 합니다")
+            if u.id == me_.id:
+                raise HTTPException(409, "자기 자신의 관리자 권한은 뺄 수 없습니다")
+        u.is_admin, u.can_edit = body.role == "admin", body.role == "edit"
+    if body.reset_otp:
+        # 휴대폰을 잃어버린 사용자: 2단계 인증을 지우고 기존 로그인을 끊는다. 관리자·편집자는 다음 로그인 때 다시 등록한다
+        u.totp_secret, u.totp_pending, u.recovery_codes = "", "", ""
+        u.session_ver += 1
+    await s.commit()
+    return _user_dict(u)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: int, request: Request, s: AsyncSession = Depends(get_session)) -> dict:
+    me_ = await auth.current_user(request)
+    if not me_.is_admin:
+        raise HTTPException(403, "관리자만 할 수 있습니다")
+    u = await s.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "사용자를 찾을 수 없습니다")
+    if u.id == me_.id:
+        raise HTTPException(409, "자기 자신은 지울 수 없습니다")
+    if u.is_admin and await _admin_count(s) <= 1:
+        raise HTTPException(409, "관리자가 한 명은 있어야 합니다")
+    await s.delete(u)
+    await s.commit()
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ servers / services
@@ -66,7 +302,7 @@ async def _node_counts(s: AsyncSession, shas: set[str]) -> dict[str, int]:
 
 
 @router.get("/servers")
-async def list_servers(user: str = Admin, s: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_servers(user: str = Member, s: AsyncSession = Depends(get_session)) -> list[dict]:
     servers = (await s.execute(select(Server).order_by(Server.environment.desc(), Server.id))).scalars().all()
     rows = (await s.execute(select(*SERVICE_COLS).order_by(Service.name))).all()
     counts = await _node_counts(s, {r.makefile_sha for r in rows})
@@ -99,13 +335,13 @@ async def _load(s: AsyncSession, service_id: int) -> tuple[Service, Server]:
 
 
 @router.get("/services/{service_id}")
-async def get_service(service_id: int, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+async def get_service(service_id: int, user: str = Member, s: AsyncSession = Depends(get_session)) -> dict:
     svc, srv = await _load(s, service_id)
     return services.service_dict(svc, srv)
 
 
 @router.get("/services/{service_id}/metrics")
-async def service_metrics(service_id: int, since: float = 0, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+async def service_metrics(service_id: int, since: float = 0, user: str = Member, s: AsyncSession = Depends(get_session)) -> dict:
     """서비스 컨테이너들의 CPU·메모리 합계, 최근 1시간. since 를 주면 그 뒤의 점만 준다."""
     row = (await s.execute(select(Service.server_id, Service.name).where(Service.id == service_id))).first()
     if not row:
@@ -114,7 +350,7 @@ async def service_metrics(service_id: int, since: float = 0, user: str = Admin, 
 
 
 @router.post("/services/{service_id}/sync")
-async def sync(service_id: int, user: str = Admin) -> dict:
+async def sync(service_id: int, user: str = Member) -> dict:
     try:
         await services.sync_service(service_id)
     except AgentOffline:
@@ -127,7 +363,7 @@ async def sync(service_id: int, user: str = Admin) -> dict:
 
 
 @router.get("/templates")
-async def list_templates(user: str = Admin) -> list[dict]:
+async def list_templates(user: str = Member) -> list[dict]:
     return [{**t, "content": to_makefile(services.model_of(t["content"]))} for t in TEMPLATES]
 
 
@@ -136,7 +372,7 @@ class InitIn(BaseModel):
 
 
 @router.post("/services/{service_id}/init")
-async def init_makefile(service_id: int, body: InitIn, user: str = Admin) -> dict:
+async def init_makefile(service_id: int, body: InitIn, user: str = Editor) -> dict:
     """Makefile 이 없는 서비스에 템플릿으로 새로 만든다. 이미 있으면 덮어쓰지 않는다."""
     tpl = TEMPLATES_BY_ID.get(body.template)
     if not tpl:
@@ -167,7 +403,7 @@ class ModelIn(BaseModel):
 
 
 @router.put("/services/{service_id}/model")
-async def save_model(service_id: int, body: ModelIn, user: str = Admin) -> dict:
+async def save_model(service_id: int, body: ModelIn, user: str = Editor) -> dict:
     """노드 편집 결과를 Makefile로 만들어 에이전트에게 쓰게 한다."""
     async with SessionLocal() as s:
         svc, srv = await _load(s, service_id)
@@ -209,7 +445,7 @@ class LayoutIn(BaseModel):
 
 
 @router.put("/services/{service_id}/layout")
-async def save_layout(service_id: int, body: LayoutIn, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+async def save_layout(service_id: int, body: LayoutIn, user: str = Member, s: AsyncSession = Depends(get_session)) -> dict:
     svc, _ = await _load(s, service_id)
     pos = {k: {"x": float(v.get("x", 0)), "y": float(v.get("y", 0))} for k, v in body.positions.items() if NAME_RE.match(k)}
     svc.layout = {"positions": pos, "favorites": [f for f in body.favorites if NAME_RE.match(f)][:50]}
@@ -240,7 +476,7 @@ class RunIn(BaseModel):
 
 
 @router.post("/services/{service_id}/runs")
-async def create_run(service_id: int, body: RunIn, user: str = Admin) -> dict:
+async def create_run(service_id: int, body: RunIn, user: str = Member) -> dict:
     if not NAME_RE.match(body.target):
         raise HTTPException(422, "명령어 이름이 올바르지 않습니다")
     vars_ = {}
@@ -274,13 +510,13 @@ def _run_dict(run: Run, steps: list[RunStep]) -> dict:
 
 
 @router.get("/services/{service_id}/runs")
-async def list_runs(service_id: int, limit: int = 20, user: str = Admin, s: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_runs(service_id: int, limit: int = 20, user: str = Member, s: AsyncSession = Depends(get_session)) -> list[dict]:
     runs = (await s.execute(select(Run).where(Run.service_id == service_id).order_by(Run.id.desc()).limit(min(limit, 100)))).scalars().all()
     return [_run_dict(r, []) for r in runs]
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: int, user: str = Admin, s: AsyncSession = Depends(get_session)) -> dict:
+async def get_run(run_id: int, user: str = Member, s: AsyncSession = Depends(get_session)) -> dict:
     run = await s.get(Run, run_id)
     if not run:
         raise HTTPException(404, "실행 기록을 찾을 수 없습니다")
@@ -289,7 +525,7 @@ async def get_run(run_id: int, user: str = Admin, s: AsyncSession = Depends(get_
 
 
 @router.post("/runs/{run_id}/stop")
-async def stop(run_id: int, user: str = Admin) -> dict:
+async def stop(run_id: int, user: str = Member) -> dict:
     await runner.stop_run(run_id)
     return {"ok": True}
 
@@ -302,7 +538,7 @@ def _sse(event: dict) -> str:
 
 
 @router.get("/runs/{run_id}/events")
-async def run_events(run_id: int, request: Request, user: str = Admin) -> StreamingResponse:
+async def run_events(run_id: int, request: Request, user: str = Member) -> StreamingResponse:
     """지난 로그를 먼저 보내고, 실행 중이면 이어서 실시간으로 보낸다 (Server-Sent Events)."""
 
     async def gen():

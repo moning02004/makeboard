@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { ServiceDetail } from '../types'
+import { Select } from './Select'
 
 type Template = { id: string; name: string; description: string; content: string }
 
@@ -26,21 +27,17 @@ export function InitMakefile({ service, onDone, onError }: { service: ServiceDet
           <span className="font-mono">{service.server?.id}:{service.path}</span> 에 템플릿으로 새로 만듭니다. 만든 뒤 노드를 편집해 채워 나가면 됩니다.
         </p>
       </div>
-      <div role="radiogroup" aria-label="템플릿" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {templates.map((t) => (
-          <button key={t.id} type="button" role="radio" aria-checked={pick === t.id} onClick={() => setPick(t.id)}
-            className={`text-left rounded-xl border px-3 py-2.5 ${pick === t.id ? 'border-accent bg-accentsoft' : 'border-line hover:bg-hover'}`}>
-            <span className={`block text-[13px] font-medium ${pick === t.id ? 'text-accent' : ''}`}>{t.name}</span>
-            <span className="block text-[12px] text-muted mt-0.5 leading-snug">{t.description}</span>
-          </button>
-        ))}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[12px] text-muted">템플릿</span>
+        <Select label="템플릿" value={pick} onChange={setPick}
+          options={templates.map((t) => ({ value: t.id, label: t.name, description: t.description }))} />
       </div>
       {current && (
         <pre className="rounded-xl bg-hover p-4 text-[12px] leading-relaxed font-mono whitespace-pre overflow-auto scroll-thin max-h-[260px]">{current.content}</pre>
       )}
       <div className="flex items-center justify-end gap-2">
-        <span className="text-[12px] text-faint mr-auto">서버의 {service.path}/Makefile 로 저장됩니다</span>
-        <button type="button" onClick={create} disabled={busy || !current} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] disabled:opacity-50">
+        <span className="text-[12px] text-faint mr-auto min-w-0 break-all">서버의 {service.path}/Makefile 로 저장됩니다</span>
+        <button type="button" onClick={create} disabled={busy || !current} className="h-9 px-4 flex-none whitespace-nowrap rounded-full bg-accent text-onaccent text-[13px] disabled:opacity-50">
           {busy ? '만드는 중…' : 'Makefile 만들기'}</button>
       </div>
     </div>

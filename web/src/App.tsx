@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, api } from './api'
+import { ApiError, api, type Me } from './api'
 import { CommandList, type ListHandle, type NodeState } from './components/CommandList'
 import { InitMakefile } from './components/InitMakefile'
 import { Login } from './components/Login'
+import { OtpSetup } from './components/OtpSetup'
 import { StatusChip } from './components/ServiceStatus'
 import { ThemeToggle } from './components/ThemeToggle'
 import { AddServer } from './components/AddServer'
@@ -39,17 +40,37 @@ const storage = {
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'out' | 'in'>('checking')
-  useEffect(() => { api.me().then(() => setAuth('in')).catch(() => setAuth('out')) }, [])
+  const [me, setMe] = useState<Me | null>(null)
+  const check = useCallback(() => { api.me().then((m) => { setMe(m); setAuth('in') }).catch(() => setAuth('out')) }, [])
+  useEffect(check, [check])
   if (auth === 'checking') return null
-  if (auth === 'out') return <Login onDone={() => setAuth('in')} />
-  return <Main onLogout={() => setAuth('out')} />
+  if (auth === 'out' || !me) return <Login onDone={check} />
+  const logout = () => { setMe(null); setAuth('out') }
+  if (me.otp.setup_required) return <RequireOtp me={me} onDone={check} onLogout={logout} />
+  return <Main me={me} onLogout={logout} />
+}
+
+// 관리자·편집자가 2단계 인증을 아직 등록하지 않았으면 다른 화면 대신 이것만 보여준다
+function RequireOtp({ me, onDone, onLogout }: { me: Me; onDone: () => void; onLogout: () => void }) {
+  return (
+    <div className="min-h-full grid place-items-center p-4 viewport cursor-default">
+      <div className="w-full max-w-[520px] bg-panel border border-line rounded-2xl shadow-xl p-7 flex flex-col gap-5">
+        <div>
+          <h1 className="text-[18px] font-semibold">2단계 인증 등록</h1>
+          <p className="text-[13px] text-muted mt-1">{me.admin ? '관리자' : '편집 권한이 있는 사용자'}는 2단계 인증을 등록해야 Makeboard 를 쓸 수 있습니다. 다음 로그인부터는 비밀번호와 함께 인증 앱의 코드를 입력합니다.</p>
+        </div>
+        <OtpSetup onDone={onDone} />
+        <button type="button" onClick={() => api.logout().finally(onLogout)} className="-mt-2 self-start text-[12px] text-muted hover:text-fg">로그아웃</button>
+      </div>
+    </div>
+  )
 }
 
 const STEP_TO_NODE: Partial<Record<StepStatus, NodeState>> = { queued: 'queued', running: 'running', ok: 'ok', failed: 'fail', stopped: 'stopped' }
 const RUN_TO_NODE: Record<RunStatus, NodeState> = { running: 'running', ok: 'ok', failed: 'fail', stopped: 'stopped' }
 const RUN_LABEL = { running: '실행 중', ok: '완료', failed: '실패', stopped: '중지됨' }
 
-function Main({ onLogout }: { onLogout: () => void }) {
+function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const toast = useToast()
   const [servers, setServers] = useState<ServerWithServices[]>([])
   const [svcId, setSvcId] = useState<number | null>(() => { const h = parseHash(); return h ? h.svc : isMobile() ? null : Number(storage.get('mb:svc')) || null })
@@ -75,6 +96,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const [editor, setEditor] = useState<EditorSeed | null>(null)
   const [modal, setModal] = useState<'source' | 'agent' | 'settings' | null>(null)
   const [removing, setRemoving] = useState<ServerWithServices | null>(null)
+  const [editing, setEditing] = useState<ServerWithServices | null>(null)
   const list = useRef<ListHandle>(null)
 
   const fail = useCallback((e: unknown) => {
@@ -234,7 +256,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="h-full flex bg-bg" style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}>
       <Sidebar servers={servers} current={curServerId} disabled={!!running} open={drawer} onClose={() => setDrawer(false)}
-        onPick={openServer} onHelp={() => { setDrawer(false); setModal('agent') }} onDelete={(s) => { setDrawer(false); setRemoving(s) }} />
+        onPick={openServer} onHelp={me.admin ? () => { setDrawer(false); setModal('agent') } : undefined}
+        onDelete={me.admin ? (s) => { setDrawer(false); setRemoving(s) } : undefined}
+        onEdit={me.admin ? (s) => { setDrawer(false); setEditing(s) } : undefined} />
 
       <main className="flex-1 min-w-0 flex flex-col h-full">
         <header className="h-14 lg:h-[68px] flex-none flex items-center gap-3 px-3 lg:pl-1 lg:pr-3.5 lg:pt-3.5 lg:pb-2">
@@ -273,7 +297,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
               className={`inline-flex h-8 items-center px-3.5 rounded-full text-[13px] ${showUsage ? 'bg-accentsoft text-accent font-semibold' : 'bg-panel text-muted hover:text-fg [box-shadow:var(--card-shadow)]'}`}>리소스</button>
           )}
           {detail && <button type="button" onClick={() => setModal('source')} className="hidden sm:inline-flex h-8 items-center px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">Makefile</button>}
-          {model && !model.readonly && (
+          {model && !model.readonly && me.edit && (
             <button type="button" onClick={() => setEditor({ orig: null })} className="inline-flex h-8 items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold bg-accent text-onaccent hover:brightness-110">
               <Icon name="plus" size={14} sw={2.4} />노드 추가
             </button>
@@ -281,16 +305,16 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('settings')} aria-label="설정" title="설정"
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="settings" size={16} /></button>
           <ThemeToggle />
-          <button type="button" onClick={() => api.logout().finally(onLogout)} aria-label="로그아웃" title="로그아웃"
+          <button type="button" onClick={() => api.logout().finally(onLogout)} aria-label={`로그아웃 (${me.name})`} title={`로그아웃 (${me.name} · ${me.user})`}
             className="w-8 h-8 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel"><Icon name="logout" size={16} /></button>
         </header>
 
         {svcId && detail && liveStatus && showUsage && <ServiceUsage serviceId={svcId} />}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
           {!svcId && !curServer && servers.length > 0 ? (
-            <ServerList servers={servers} onOpen={openServer} onAdd={() => setModal('agent')} />
+            <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
-            <ServerDashboard server={curServer} onOpen={openService} />
+            <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
@@ -298,8 +322,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           ) : (
             <div className="viewport cursor-default flex-1 grid place-items-center p-6">
               <div className={`${detail && !model && !detail.makefile && !detail.sync_error ? 'w-full max-w-[640px]' : 'max-w-[420px]'} text-center flex flex-col items-center gap-3`}>
-                {detail && !model && !detail.makefile && !detail.sync_error ? (
-                  <InitMakefile service={detail} onError={fail} onDone={(d) => { setDetail(d); loadServers() }} />
+                {detail && !model && !detail.makefile && !detail.sync_error ? (me.edit
+                  ? <InitMakefile service={detail} onError={fail} onDone={(d) => { setDetail(d); loadServers() }} />
+                  : <><p className="text-[15px] font-medium">Makefile이 없습니다</p><p className="text-[13px] text-muted">편집 권한이 있는 사용자가 만들 수 있습니다.</p></>
                 ) : detail && !model ? <>
                   <p className="text-[15px] font-medium">Makefile을 불러오지 못했습니다</p>
                   <p className="text-[13px] text-muted">{detail.sync_error || `${detail.path}/Makefile 이 비어 있습니다.`}</p>
@@ -307,7 +332,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
                 </> : servers.length === 0 ? <>
                   <p className="text-[15px] font-medium">연결된 서버가 없습니다</p>
                   <p className="text-[13px] text-muted">관리할 서버에 에이전트를 설치하고 실행하면 서버와 서비스가 자동으로 나타납니다.</p>
-                  <button type="button" onClick={() => setModal('agent')} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">서버 추가</button>
+                  {me.admin && <button type="button" onClick={() => setModal('agent')} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">서버 추가</button>}
                 </> : <p className="text-[13px] text-muted">{loading ? '불러오는 중…' : '왼쪽에서 서버를 고르세요'}</p>}
               </div>
             </div>
@@ -318,7 +343,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
             {panelOpen && model && detail && sel && (
               <Panel model={model} node={sel} service={detail} favorites={favorites} tab={tab} full={full} wrap={wrap}
                 params={params[sel] || {}} confirm={confirm === sel} stream={stream} live={!!stream && (live.has(stream.id) || stream.status === 'running')}
-                runs={runs} running={!!running} readonly={model.readonly}
+                runs={runs} running={!!running} readonly={model.readonly || (me.edit ? null : '편집 권한이 없습니다')}
                 onTab={setTab} onFull={() => setFull((f) => !f)} onWrap={() => setWrap((w) => !w)}
                 onParam={(k, v) => setParams((p) => ({ ...p, [sel]: { ...(p[sel] || {}), [k]: v } }))}
                 onRun={() => requestRun(sel)} onConfirm={() => void doRun(sel)} onCancelConfirm={() => setConfirm(null)} onStop={stop}
@@ -338,9 +363,10 @@ function Main({ onLogout }: { onLogout: () => void }) {
       )}
       {modal === 'source' && detail && <Modal wide onClose={() => setModal(null)}><SourceModal service={detail} onSync={sync} onClose={() => setModal(null)} /></Modal>}
       {modal === 'settings' && <Modal onClose={() => setModal(null)}>
-        <Settings onClose={() => setModal(null)} onError={fail} onSaved={() => { loadServers(); toast('설정을 저장했습니다') }} />
+        <Settings me={me} onClose={() => setModal(null)} onError={fail} onSaved={(msg) => { loadServers(); toast(msg) }} />
       </Modal>}
       {modal === 'agent' && <Modal onClose={() => setModal(null)}><AddServer servers={servers} onClose={() => setModal(null)} /></Modal>}
+      {editing && <Modal onClose={() => setEditing(null)}><AddServer servers={servers} edit={editing} onClose={() => setEditing(null)} /></Modal>}
       {removing && <Modal onClose={() => setRemoving(null)}><DeleteServer server={removing} onClose={() => setRemoving(null)} onDone={(message) => {
         if (removing.services.some((v) => v.id === svcId)) { setSvcId(null); setDetail(null) }
         if (removing.id === srvId) setSrvId(null)

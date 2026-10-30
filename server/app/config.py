@@ -8,8 +8,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="MAKEBOARD_", extra="ignore")
 
-    # 웹 로그인 토큰. 기본값이 없어서 설정하지 않으면 서버가 시작되지 않는다.
+    # CLI 용 관리자 토큰(Authorization: Bearer). 세션 쿠키 서명에도 쓴다. 설정하지 않으면 서버가 시작되지 않는다.
     admin_token: str
+    # 처음 시작할 때(사용자가 아무도 없을 때) 만들 관리자 계정. 비밀번호를 비우면 admin_token 을 쓴다.
+    admin_user: str = "admin"
+    admin_password: str = ""
     # 에이전트별 토큰: "prod-app-01:토큰1,dev-01:토큰2"
     agent_tokens: str = ""
     database_url: str = "sqlite+aiosqlite:///./makeboard.db"

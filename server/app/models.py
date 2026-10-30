@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -29,6 +29,28 @@ class Server(Base):
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class User(Base):
+    """웹 로그인 계정. 관리자가 추가한다."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(64), default="")  # 화면에 보여줄 이름 (비우면 아이디)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Makefile·yaml 을 고칠 수 있는지 (관리자는 항상 가능). 관리자와 편집자는 2단계 인증이 필수
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 2단계 인증(TOTP). totp_secret 이 있으면 켜진 것, totp_pending 은 QR 을 찍는 중인 비밀값
+    totp_secret: Mapped[str] = mapped_column(String(64), default="")
+    totp_pending: Mapped[str] = mapped_column(String(64), default="")
+    totp_last_step: Mapped[int] = mapped_column(Integer, default=0)  # 같은 코드를 두 번 못 쓰게
+    recovery_codes: Mapped[str] = mapped_column(Text, default="")  # 일회용 복구 코드의 sha256, 쉼표로 이음
+    # 비밀번호를 바꾸면 올려서 그 사용자의 기존 로그인을 모두 끊는다
+    session_ver: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AppSetting(Base):
     """웹에서 바꾼 설정. 없으면 .env 값을 쓴다 (prefs.py)."""
 
@@ -46,6 +68,10 @@ class AgentKey(Base):
     agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     token_sha: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # 설치할 때 고른 값. 편집 화면에 채워 넣는다 (scan 은 ':' 로 이음)
+    scan: Mapped[str] = mapped_column(Text, default="")
+    kubeconfig: Mapped[str] = mapped_column(String(1024), default="")
+    run_as: Mapped[str] = mapped_column(String(32), default="")
 
 
 class Service(Base):
