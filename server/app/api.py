@@ -304,7 +304,7 @@ async def _node_counts(s: AsyncSession, shas: set[str]) -> dict[str, int]:
 @router.get("/servers")
 async def list_servers(user: str = Member, s: AsyncSession = Depends(get_session)) -> list[dict]:
     servers = (await s.execute(select(Server).order_by(Server.environment.desc(), Server.id))).scalars().all()
-    rows = (await s.execute(select(*SERVICE_COLS).order_by(Service.name))).all()
+    rows = (await s.execute(select(*SERVICE_COLS).where(Service.removed_at.is_(None)).order_by(Service.name))).all()
     counts = await _node_counts(s, {r.makefile_sha for r in rows})
     by_server: dict[str, list] = {}
     for r in rows:

@@ -88,6 +88,8 @@ class Service(Base):
     makefile_sha: Mapped[str] = mapped_column(String(64), default="")
     sync_error: Mapped[str] = mapped_column(Text, default="")
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 에이전트가 더는 알리지 않는 서비스(폴더를 지움)는 지우지 않고 숨긴다. 같은 이름이 다시 생기면 기록과 함께 돌아온다
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 캔버스 위치, 즐겨찾기 (여러 기기에서 같이 보이도록 서버에 저장)
     layout: Mapped[dict] = mapped_column(JSON, default=dict)
 

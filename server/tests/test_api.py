@@ -241,3 +241,24 @@ async def test_otp_required_can_be_turned_off_for_local(client):
     finally:
         settings.otp_required = True
         client.cookies.clear()
+
+
+async def test_removed_folder_hides_service_and_comes_back(client):
+    """폴더를 지워 에이전트 목록에서 빠지면 숨기고, 다시 생기면 같은 서비스(id)로 돌아온다"""
+    from app.services import upsert_agent
+
+    names = lambda r: [v["name"] for v in next(x for x in r.json() if x["id"] == "srv-9")["services"]]  # noqa: E731
+    await upsert_agent("srv-9", {"projects": [{"name": "a", "path": "/s/a"}, {"name": "b", "path": "/s/b"}]})
+    r = await client.get("/api/servers", headers=AUTH)
+    assert names(r) == ["a", "b"]
+    b_id = next(x for x in r.json() if x["id"] == "srv-9")["services"][1]["id"]
+
+    await upsert_agent("srv-9", {"projects": [{"name": "a", "path": "/s/a"}]})
+    assert names(await client.get("/api/servers", headers=AUTH)) == ["a"]
+    # 목록이 통째로 비면 숨기지 않는다
+    await upsert_agent("srv-9", {"projects": []})
+    assert names(await client.get("/api/servers", headers=AUTH)) == ["a"]
+
+    await upsert_agent("srv-9", {"projects": [{"name": "a", "path": "/s/a"}, {"name": "b", "path": "/s/b"}]})
+    r = await client.get("/api/servers", headers=AUTH)
+    assert names(r) == ["a", "b"] and next(x for x in r.json() if x["id"] == "srv-9")["services"][1]["id"] == b_id
