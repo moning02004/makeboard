@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon, TypeIcon } from '../icons'
 import { NAME_RE, VALUE_RE, contains, groupsOf, nodeMake, paramsOf, typeOf, usedBy } from '../model'
 import type { MakeNode, Model } from '../types'
+import { Select } from './Select'
 
 type EKind = 'cmd' | 'comp' | 'preset'
 
@@ -99,12 +100,10 @@ export function NodeEditor({ model: m, seed, onSave, onDelete, onClose }: {
 
       {kind === 'preset' ? (
         <div className="flex flex-col gap-3 p-4 rounded-xl bg-hover">
-          <label className="flex flex-col gap-1.5 text-[12px] text-muted">대상 명령어
-            <select className={`${inp} font-mono bg-panel`} value={target} onChange={(e) => { setTarget(e.target.value); setArgs({}) }}>
-              <option value="" disabled>선택</option>
-              {targets.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
+          <div className="flex flex-col gap-1.5 text-[12px] text-muted">대상 명령어
+            <Select label="대상 명령어" mono value={target} placeholder="선택" options={targets.map((n) => ({ value: n, label: n }))}
+              onChange={(v) => { setTarget(v); setArgs({}) }} />
+          </div>
           {tparams.map((p) => (
             <label key={p.name} className="grid grid-cols-[96px_1fr] items-center gap-3">
               <span className="font-mono text-[12px] text-muted">{p.name}{p.required && <span className="text-fail"> *</span>}</span>
