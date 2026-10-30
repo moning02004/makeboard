@@ -57,7 +57,7 @@ function RequireOtp({ me, onDone, onLogout }: { me: Me; onDone: () => void; onLo
       <div className="w-full max-w-[520px] bg-panel border border-line rounded-2xl shadow-xl p-7 flex flex-col gap-5">
         <div>
           <h1 className="text-[18px] font-semibold">2단계 인증 등록</h1>
-          <p className="text-[13px] text-muted mt-1">{me.admin ? '관리자' : '편집 권한이 있는 사용자'}는 2단계 인증을 등록해야 Makeboard 를 쓸 수 있습니다. 다음 로그인부터는 비밀번호와 함께 인증 앱의 코드를 입력합니다.</p>
+          <p className="text-[13px] text-muted mt-1">{me.admin ? '관리자' : '편집자'}는 2단계 인증이 필요합니다.</p>
         </div>
         <OtpSetup onDone={onDone} />
         <button type="button" onClick={() => api.logout().finally(onLogout)} className="-mt-2 self-start text-[12px] text-muted hover:text-fg">로그아웃</button>
@@ -314,7 +314,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {!svcId && !curServer && servers.length > 0 ? (
             <ServerList servers={servers} onOpen={openServer} onAdd={me.admin ? () => setModal('agent') : undefined} />
           ) : !svcId && curServer ? (
-            <ServerDashboard server={curServer} onOpen={openService} onEdit={me.admin ? () => setEditing(curServer) : undefined} />
+            <ServerDashboard server={curServer} onOpen={openService} />
           ) : model && detail ? (
             <CommandList ref={list} model={model} favorites={favorites} status={nodeStatus} selected={sel} running={!!running}
               panelOpen={panelOpen} onSelect={select} onRun={requestRun} onStop={stop}
@@ -331,7 +331,7 @@ function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
                   <button type="button" onClick={() => sync().catch(() => {})} className="h-9 px-4 rounded-full bg-panel text-[13px] hover:bg-hover [box-shadow:var(--card-shadow)]">다시 불러오기</button>
                 </> : servers.length === 0 ? <>
                   <p className="text-[15px] font-medium">연결된 서버가 없습니다</p>
-                  <p className="text-[13px] text-muted">관리할 서버에 에이전트를 설치하고 실행하면 서버와 서비스가 자동으로 나타납니다.</p>
+                  <p className="text-[13px] text-muted">서버를 추가하면 여기에 나타납니다.</p>
                   {me.admin && <button type="button" onClick={() => setModal('agent')} className="h-9 px-4 rounded-full bg-accent text-onaccent text-[13px] font-semibold">서버 추가</button>}
                 </> : <p className="text-[13px] text-muted">{loading ? '불러오는 중…' : '왼쪽에서 서버를 고르세요'}</p>}
               </div>

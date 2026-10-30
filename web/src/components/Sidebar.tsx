@@ -56,7 +56,6 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
                   {s.environment !== 'prod' && <span className="text-[10px] font-semibold px-1.5 py-px rounded bg-ok/10 text-ok">
                     {s.environment === 'staging' ? '스테이징' : '개발'}
                   </span>}
-                  <span className={`ml-auto text-[11px] text-faint tabular-nums ${onEdit ? 'pr-14' : onDelete ? 'pr-7' : ''}`}>{s.services.length}</span>
                 </span>
                 {s.online
                   ? <span className="mt-1.5 flex flex-col gap-1">
@@ -68,7 +67,7 @@ export function Sidebar({ servers, current, disabled, open, onClose, onPick, onH
               </span>
             </button>
             {(onEdit || onDelete) && <span className="absolute right-1.5 top-1.5 flex lg:opacity-0 lg:group-hover:opacity-100 focus-within:opacity-100">
-              {onEdit && <button type="button" onClick={() => onEdit(s)} aria-label={`${s.id} 서버 편집`} title="서버 편집"
+              {onEdit && s.managed !== false && <button type="button" onClick={() => onEdit(s)} aria-label={`${s.id} 서버 편집`} title="서버 편집"
                 className="w-7 h-7 grid place-items-center rounded-full text-faint hover:text-fg hover:bg-panel">
                 <Icon name="edit" size={14} />
               </button>}

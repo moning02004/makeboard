@@ -44,6 +44,7 @@ export interface ServerBrief {
   last_seen: string | null
   // 설정(MAKEBOARD_BESZEL_URL)이 있을 때만 온다
   beszel_url?: string | null
+  managed?: boolean
 }
 
 export interface Container { name: string; service: string; state: string; health: string; status: string; cpu?: number; mem?: number }

@@ -39,7 +39,7 @@ function storageGet(k: string) { try { return localStorage.getItem(k) } catch { 
 function storageSet(k: string, v: string) { try { localStorage.setItem(k, v) } catch { /* 저장 불가 환경 */ } }
 
 // 서버를 누르면 가운데에 나오는 화면: 리소스 사용량과 서비스 목록
-export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWithServices; onOpen: (id: number) => void; onEdit?: () => void }) {
+export function ServerDashboard({ server, onOpen }: { server: ServerWithServices; onOpen: (id: number) => void }) {
   const [onlyRunning, setOnlyRunning] = useState(() => storageGet('mb:onlyRunning') === '1')
   const m = server.metrics || {}
 
@@ -57,9 +57,11 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
   })
   const pickSort = (k: SortKey) => { setSortBy(k); storageSet('mb:sort', k) }
   const withUsage = server.services.filter((v) => v.status?.usage)
-  const topCpu = Math.max(0.01, ...withUsage.map((v) => v.status!.usage!.cpu))
-  const topMem = Math.max(1, ...withUsage.map((v) => v.status!.usage!.mem))
-  const topDisk = Math.max(1, ...server.services.map((v) => v.disk ?? 0))
+  // 막대의 끝: CPU 는 서버 전체 대비 %로 최소 10%(가장 큰 값까지), 메모리는 서버 전체 메모리, 디스크는 가장 큰 폴더(최소 1GB)
+  // 값이 작은 서비스가 막대를 꽉 채워 보이지 않도록 한다 (차트 축과 같은 기준)
+  const topCpu = Math.max(10, ...withUsage.map((v) => v.status!.usage!.cpu))
+  const topMem = m.mem_total || Math.max(1, ...withUsage.map((v) => v.status!.usage!.mem))
+  const topDisk = Math.max(1024 ** 3, ...server.services.map((v) => v.disk ?? 0))
   const valueOf = (v: ServiceItem, k: SortKey) => (k === 'disk' ? v.disk : k === 'name' ? null : v.status?.usage?.[k]) ?? -1
   const sorted = [...shown].sort((a, b) => {
     if (sortBy !== 'name') {
@@ -81,12 +83,6 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
             {[server.hostname, m.uptime ? `가동 ${uptime(m.uptime)}` : '', server.version ? `에이전트 ${server.version}` : ''].filter(Boolean).join(' · ')}
           </span>
           <span className="ml-auto flex items-center gap-2">
-          {onEdit && !server.pending && (
-            <button type="button" onClick={onEdit} title="서비스 폴더·쿠버네티스 설정을 바꾸거나 에이전트를 최신으로 업데이트합니다"
-              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">
-              <Icon name="edit" size={13} sw={2} />편집
-            </button>
-          )}
           {server.beszel_url && (
             <a href={server.beszel_url} target="_blank" rel="noopener noreferrer" title="Beszel에서 이 서버의 상태 보기"
               className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-full bg-panel text-[13px] text-muted hover:text-fg [box-shadow:var(--card-shadow)]">
@@ -106,13 +102,13 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-3" aria-label="리소스 추이">
-            <TimeChart title="CPU" unit="pct" points={points} series={[{ key: 'cpu', label: 'CPU', color: S1 }]} />
-            <TimeChart title="메모리" unit="pct" points={points} series={[{ key: 'ram', label: '메모리', color: S1 }]} />
-            <TimeChart title="디스크" unit="pct" points={points} series={[{ key: 'disk', label: '디스크', color: S1 }]} />
+            <TimeChart title="CPU" unit="pct" minMax={20} points={points} series={[{ key: 'cpu', label: 'CPU', color: S1 }]} />
+            <TimeChart title="메모리" unit="pct" fixedMax={100} points={points} series={[{ key: 'ram', label: '메모리', color: S1 }]} />
+            <TimeChart title="디스크" unit="pct" fixedMax={100} points={points} series={[{ key: 'disk', label: '디스크', color: S1 }]} />
           </section>
         </> : (
           <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">
-            {server.pending ? '아직 연결된 적이 없습니다. 추가할 서버에서 설치 명령어를 실행하세요.' : '오프라인이라 리소스를 볼 수 없습니다.'}
+            {server.pending ? '연결 대기 중입니다. 그 서버에서 설치 명령어를 실행하세요.' : '오프라인이라 리소스를 볼 수 없습니다.'}
           </p>
         )}
 
@@ -132,7 +128,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
           </div>
           {server.services.length === 0 ? (
             <p className="text-[13px] text-muted bg-panel border border-line rounded-2xl px-4 py-3">
-              서비스 폴더가 비어 있습니다. 에이전트가 보는 폴더 아래에 서비스 폴더가 있는지 확인하세요.
+              서비스가 없습니다. 서비스 폴더 경로를 확인하세요.
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -168,7 +164,7 @@ export function ServerDashboard({ server, onOpen, onEdit }: { server: ServerWith
               })}
             </div>
           )}
-          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint">CPU는 서버 전체 대비입니다. 막대는 이 서버에서 가장 많이 쓰는 서비스를 기준으로 한 비교입니다. CPU·메모리는 15초, 디스크(서비스 폴더 크기)는 5분마다 갱신됩니다.</p>}
+          {(withUsage.length > 0 || server.services.some((v) => v.disk != null)) && <p className="text-[11px] text-faint" title="막대: CPU 는 최소 10%까지, 메모리는 서버 전체 메모리 대비, 디스크(서비스 폴더 크기)는 가장 큰 폴더(최소 1GB) 기준. 디스크는 5분마다 갱신됩니다.">CPU·메모리는 서버 전체 대비 · 15초마다 갱신</p>}
         </section>
       </div>
     </div>

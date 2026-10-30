@@ -20,6 +20,7 @@ const ICONS = {
   plus: <path d="M12 5v14M5 12h14" />,
   minus: <path d="M5 12h14" />,
   check: <path d="M5 12l5 5 9-10" />,
+  copy: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></>,
   up: <path d="M6 14l6-6 6 6" />,
   down: <path d="M6 10l6 6 6-6" />,
   layers: <path d="M4 7l8-4 8 4-8 4zM4 12l8 4 8-4M4 17l8 4 8-4" />,
